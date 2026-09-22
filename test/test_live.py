@@ -61,25 +61,17 @@ def test_album_tracks_are_complete():
     assert all(track.album.id == album.id for track in page.items)
 
 
-def test_artist_has_valid_images_when_wikidata_answers():
+def test_artist_has_images_from_wikidata():
     artist = get_plugin().artist.get_artist(RADIOHEAD_MBID)
 
     assert artist.name == "Radiohead"
-    # The image enrichment is budgeted: a slow Wikidata degrades to no image, which is a
-    # valid outcome. The dedicated test below proves the mapping with a generous budget.
-    if artist.images:
-        assert artist.images[0].url.startswith("https://commons.wikimedia.org/")
+    assert artist.images
+    assert artist.images[0].url.startswith("https://commons.wikimedia.org/")
 
 
 def test_wikidata_maps_a_musicbrainz_id_to_the_commons_sizes():
-    images = WikidataArtistImages(HttpClient(rate_limits={})).resolve(
-        [RADIOHEAD_MBID], timeout=25.0
-    )
+    images = WikidataArtistImages(HttpClient(rate_limits={})).resolve([RADIOHEAD_MBID])
 
-    if not images[RADIOHEAD_MBID]:
-        # The query service is frequently overloaded (observed 5-30 s for one id); an
-        # outage must not fail the live suite. The mapping itself is covered offline.
-        pytest.skip("Wikidata did not answer within the budget")
     assert [image.width for image in images[RADIOHEAD_MBID]] == [56, 250, 500, 1000]
     assert images[RADIOHEAD_MBID][0].url.startswith("https://commons.wikimedia.org/")
 

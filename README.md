@@ -7,7 +7,7 @@ plugin (`gyawun_metadata_plugin`), whose behaviour it preserves.
 
 Providers: **MusicBrainz** (search, releases, release groups, recordings, ratings),
 **ListenBrainz** (token, liked tracks, user playlists, radios, algorithmic playlists),
-**Wikidata** (artist images, SPARQL) and **Wikimedia Commons** (image URLs).
+**Wikidata** (artist images, via the MediaWiki API) and **Wikimedia Commons** (image URLs).
 
 ## Why it exists
 
@@ -39,7 +39,7 @@ src/
 ├── mapping.py       # MusicBrainz JSON -> SDK models
 ├── jspf.py          # JSPF (ListenBrainz playlist format) -> Track
 ├── providers.py     # endpoints and URI/cover conventions
-├── images/          # Wikidata (P434/P18) and Wikimedia Commons URLs
+├── images/          # Wikidata MediaWiki API (P434/P18) and Wikimedia Commons URLs
 └── segments/        # one module per interface: core, search, album, artist,
                      # track, playlist, user, auth, browse
 test/                # pytest suite (offline by default, live tests behind -m live)
@@ -105,22 +105,23 @@ a library saved before the migration still matches.
 OAuth2 + PKCE (loopback redirect) is planned for providers that require it; this version
 only prompts for the token.
 
-## Controlled degradation and provider etiquette
+## Error policy and provider etiquette
 
 - **Mandatory calls** fail with the correct typed error: `not_found`, `rate_limited`,
   `transport_error`, `auth_required`, `invalid_argument`.
-- **Optional calls** (artist images, Wikidata SPARQL, "Fans Also Like", radio fallbacks)
-  never fail the primary response: they absorb failures and return what they have.
+- **Image enrichment distinguishes "absent" from "unavailable".** An artist without a
+  Wikidata entity or without a Commons image has an **empty** `images` list — that is
+  data, not a failure. A request that could not be *made* (timeout, 429, 5xx) is raised as
+  the matching retryable SDK error so the host can retry; it is never cached, so a retry
+  really re-queries. The rule is the same for every call site (search, detail, related,
+  saved), so the behaviour is uniform and the app stays agnostic.
 - **`User-Agent`** identifies the plugin; **`Retry-After`** is honoured on 429/503 with up
   to three attempts; MusicBrainz is throttled to one request per second.
-- **Time budgets** keep optional work from dominating a response. The Wikidata query
-  service answers a single-artist P434/P18 query in as little as ~5 s but is frequently
-  overloaded (observed 17–30 s and occasional timeouts), so images are budgeted per call
-  site: `SEARCH_TIMEOUT = 3 s` for the search page (best-effort) and `DETAIL_TIMEOUT = 6 s`
-  for a detail page. When the budget is exceeded the artist simply has no image — the old
-  plugin could spend ~48 s here. Successful answers and genuine misses are cached per
-  session, while a timeout is **not** cached (a slow endpoint must not poison the next
-  call).
+- **Artist images come from the Wikidata MediaWiki API**, not from SPARQL: two calls
+  resolve a whole page (`haswbstatement:P434=…|…` maps ids to entities, `wbgetentities`
+  reads `P18`), measured at ~1 s against 5–30 s for the equivalent SPARQL query — which
+  timed out even on trivial queries. Resolved images and genuine misses are cached per
+  session (`IMAGES_TIMEOUT = 5 s`).
 
 ## Testing
 

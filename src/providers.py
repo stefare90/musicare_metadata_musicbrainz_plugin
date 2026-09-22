@@ -5,7 +5,7 @@ MUSICBRAINZ_SITE = "https://musicbrainz.org/"
 LISTENBRAINZ_API = "https://api.listenbrainz.org/1/"
 LISTENBRAINZ_SITE = "https://listenbrainz.org/"
 LISTENBRAINZ_LABS = "https://labs.api.listenbrainz.org"
-WIKIDATA_SPARQL = "https://query.wikidata.org/sparql"
+WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 COVER_ART_ARCHIVE = "https://coverartarchive.org/"
 
 # The two private ListenBrainz playlists the plugin uses as the "saved albums" and
