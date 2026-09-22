@@ -20,8 +20,10 @@ build chain.
 ## Requirements
 
 - **100% Pure-Python**: no native extension (`.so`, `.pyd`, `.dylib`, `.dll`) and no
-  dependency with compiled parts. The standard library is enough (`urllib`, `json`), so
-  `requirements.txt` has no runtime dependency and nothing is vendored into `plugin.zip`.
+  dependency with compiled parts. The only runtime dependency is **`certifi`** — pure
+  Python, vendored into `plugin.zip`: the CPython embedded in the Android app ships no CA
+  store, so without it HTTPS fails with `CERTIFICATE_VERIFY_FAILED`. It is the same reason
+  the YouTube audio plugin vendors it.
 - `pluginSdkVersion: 4.0.0`. The matching host SDK is `musicare_metadata_host_sdk`.
 
 ## Layout
@@ -31,7 +33,7 @@ plugin.json          # manifest (id, packageId, type, version, pluginSdkVersion,
 src/
 ├── main.py          # get_plugin() factory, called by the runtime
 ├── plugin.py        # wires the segments and exposes the interfaces
-├── http.py          # stdlib JSON client: User-Agent, Retry-After, per-host rate limit
+├── http.py          # stdlib JSON client: certifi TLS, User-Agent, Retry-After, rate limit
 ├── credentials.py   # the token shared between IAuth and IUser
 ├── listenbrainz.py  # ListenBrainz service: token, library, playlists
 ├── mapping.py       # MusicBrainz JSON -> SDK models
@@ -146,6 +148,6 @@ python3 -m venv .venv
   "core.support,search.chips,search.tracks,search.albums,search.artists,album.getAlbum,artist.getArtist,track.getTrack"
 ```
 
-`musicare-build` comes from `musicare-plugin-builder` (a dev dependency; the SDK itself is
-provided by the host staging and is never vendored). `plugin.zip` is git-ignored and
-published as a GitHub release asset.
+`musicare-build` comes from `musicare-plugin-builder` (a dev dependency; the metadata SDK
+itself is provided by the host staging and is never vendored). It vendors `certifi` into
+`plugin.zip`; `plugin.zip` is git-ignored and published as a GitHub release asset.
