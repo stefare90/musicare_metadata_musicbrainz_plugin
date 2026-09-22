@@ -1,0 +1,29 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+.Python
+build_plugin_temp/
+dist/
+*.egg-info/
+.venv/
+venv/
+env/
+ENV
+.env
+.pytest_cache/
+
+# Pure-Python rule: never commit native binaries
+*.so
+*.dylib
+*.dll
+*.pyd
+
+# Packaging artefact (built locally, shipped through the GitHub release)
+plugin.zip
+
+# Agent configuration: symlinks into the workspace meta-repo
+.pi
+.pi/*
+AGENTS.md
+PLAN.md
