@@ -1,0 +1,6 @@
+-r requirements.txt
+
+# Development tooling (never vendored into plugin.zip: only requirements.txt is).
+pytest>=8.0
+git+https://github.com/stefare90/musicare_plugin_sdk.git#subdirectory=python/metadata/plugin_sdk
+git+https://github.com/stefare90/musicare_plugin_sdk.git#subdirectory=python/plugin_builder
