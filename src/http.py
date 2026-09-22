@@ -34,9 +34,7 @@ USER_AGENT = (
 RATE_LIMITS: Dict[str, float] = {"musicbrainz.org": 1.0}
 
 _RETRYABLE_STATUS = (429, 503)
-_RETRYABLE_ATTEMPTS = 2
-# Optional enrichment must never dominate the response time.
-OPTIONAL_TIMEOUT = 5.0
+_RETRYABLE_ATTEMPTS = 3
 
 
 def _header(headers: Mapping[str, str], name: str) -> Optional[str]:

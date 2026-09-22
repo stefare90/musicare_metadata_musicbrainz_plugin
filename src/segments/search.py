@@ -19,7 +19,7 @@ from musicare_metadata_plugin_sdk import (
 )
 
 from ..http import HttpClient
-from ..images.wikidata import WikidataArtistImages
+from ..images.wikidata import SEARCH_TIMEOUT, WikidataArtistImages
 from ..mapping import build_album_from_release_group, build_artist, build_track
 from ..providers import MUSICBRAINZ_API
 
@@ -65,7 +65,7 @@ class MusicBrainzSearch(ISearch):
         data = self._search("artist", query, offset, limit)
         page = _page(data, "artists", build_artist, offset, limit)
         return PaginatedResult(
-            items=self._images.enrich(page.items),
+            items=self._images.enrich(page.items, timeout=SEARCH_TIMEOUT),
             total=page.total,
             offset=page.offset,
             limit=page.limit,

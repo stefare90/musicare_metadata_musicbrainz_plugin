@@ -43,7 +43,7 @@ class StubImages:
         self.requested.append(mbids)
         return {mbid: self.images_by_id.get(mbid, []) for mbid in mbids}
 
-    def enrich(self, artists):
+    def enrich(self, artists, timeout=None):
         return [
             Artist(
                 id=artist.id,

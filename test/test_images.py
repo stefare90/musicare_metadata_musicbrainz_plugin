@@ -1,6 +1,6 @@
 """Wikimedia URL building and the optional Wikidata image enrichment."""
 
-from musicare_metadata_plugin_sdk import Artist
+from musicare_metadata_plugin_sdk import Artist, TransportError
 
 from src.images import wikimedia
 from src.images.wikidata import WikidataArtistImages
@@ -67,6 +67,22 @@ def test_resolve_degrades_to_empty_when_sparql_is_unusable():
     client = StubClient(lambda url, params: None)
 
     assert WikidataArtistImages(client).resolve(["a1"]) == {"a1": []}
+
+
+def test_a_transport_failure_is_not_cached_as_a_missing_image():
+    calls = {"count": 0}
+
+    def handler(url, params):
+        calls["count"] += 1
+        if calls["count"] == 1:
+            raise TransportError("budget exhausted")
+        return _sparql_response([_binding("a1", _FILE_URI)])
+
+    images = WikidataArtistImages(StubClient(handler))
+
+    assert images.resolve(["a1"]) == {"a1": []}
+    assert images.resolve(["a1"])["a1"][0].width == 56
+    assert calls["count"] == 2
 
 
 def test_resolve_ignores_bindings_without_an_image_uri():
