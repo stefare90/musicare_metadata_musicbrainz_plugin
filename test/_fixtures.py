@@ -44,6 +44,7 @@ def recording_payload(
     artist_name: str = ARTIST_NAME,
     releases: Optional[List[Dict[str, Any]]] = None,
     tags: Optional[List[str]] = None,
+    rating: Optional[Dict[str, Any]] = None,
 ) -> Dict[str, Any]:
     payload: Dict[str, Any] = {
         "id": recording_id,
@@ -55,6 +56,8 @@ def recording_payload(
         payload["releases"] = releases
     if tags is not None:
         payload["tags"] = [{"name": tag} for tag in tags]
+    if rating is not None:
+        payload["rating"] = rating
     return payload
 
 

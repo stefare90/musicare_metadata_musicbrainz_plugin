@@ -10,42 +10,11 @@ from ._fixtures import (
     recording_payload,
     release_group_payload,
 )
-
-
-class StubClient:
-    def __init__(self, responses):
-        self.responses = responses
-        self.calls = []
-
-    def get_json(self, url, params=None, **kwargs):
-        self.calls.append((url, params))
-        for suffix, payload in self.responses.items():
-            if url.endswith(suffix):
-                return payload
-        raise AssertionError(f"unexpected URL: {url}")
-
-
-class StubImages:
-    """Stands in for ``WikidataArtistImages`` so the test never touches Wikidata."""
-
-    def __init__(self, images_by_id=None):
-        self.images_by_id = images_by_id or {}
-
-    def enrich(self, artists):
-        return [
-            Artist(
-                id=artist.id,
-                name=artist.name,
-                external_uri=artist.external_uri,
-                images=self.images_by_id.get(artist.id, []),
-                genres=artist.genres,
-            )
-            for artist in artists
-        ]
+from ._stubs import StubClient, StubImages, router
 
 
 def test_chips_declare_the_three_supported_categories():
-    search = MusicBrainzSearch(StubClient({}), StubImages())
+    search = MusicBrainzSearch(StubClient(router({})), StubImages())
 
     assert search.chips() == [
         SearchCategory.TRACKS,
@@ -56,12 +25,7 @@ def test_chips_declare_the_three_supported_categories():
 
 def test_tracks_reads_recordings_and_the_total_count():
     client = StubClient(
-        {
-            "recording": {
-                "count": 42,
-                "recordings": [recording_payload(releases=[])],
-            }
-        }
+        router({"recording": {"count": 42, "recordings": [recording_payload(releases=[])]}})
     )
     search = MusicBrainzSearch(client, StubImages())
 
@@ -71,7 +35,7 @@ def test_tracks_reads_recordings_and_the_total_count():
     assert page.offset == 5
     assert page.limit == 10
     assert [track.id for track in page.items] == ["recording-1"]
-    assert client.calls[0][1] == {
+    assert client.calls[0][2] == {
         "query": "radiohead",
         "limit": 10,
         "offset": 5,
@@ -80,7 +44,9 @@ def test_tracks_reads_recordings_and_the_total_count():
 
 
 def test_albums_read_release_groups():
-    client = StubClient({"release-group": {"count": 7, "release-groups": [release_group_payload()]}})
+    client = StubClient(
+        router({"release-group": {"count": 7, "release-groups": [release_group_payload()]}})
+    )
     search = MusicBrainzSearch(client, StubImages())
 
     page = search.albums("radiohead")
@@ -90,7 +56,7 @@ def test_albums_read_release_groups():
 
 
 def test_artists_are_enriched_with_images():
-    client = StubClient({"artist": {"count": 1, "artists": [artist_payload(tags=["rock"])]}})
+    client = StubClient(router({"artist": {"count": 1, "artists": [artist_payload(tags=["rock"])]}}))
     images = StubImages({ARTIST_MBID: [Image(url="https://img", width=56, height=56)]})
     search = MusicBrainzSearch(client, images)
 
@@ -101,7 +67,7 @@ def test_artists_are_enriched_with_images():
 
 
 def test_playlists_are_an_empty_page():
-    search = MusicBrainzSearch(StubClient({}), StubImages())
+    search = MusicBrainzSearch(StubClient(router({})), StubImages())
 
     page = search.playlists("radiohead", offset=3, limit=4)
 
@@ -111,11 +77,13 @@ def test_playlists_are_an_empty_page():
 
 def test_all_aggregates_five_of_each_without_playlists():
     client = StubClient(
-        {
-            "recording": {"count": 1, "recordings": [recording_payload(releases=[])]},
-            "release-group": {"count": 1, "release-groups": [release_group_payload()]},
-            "artist": {"count": 1, "artists": [artist_payload()]},
-        }
+        router(
+            {
+                "recording": {"count": 1, "recordings": [recording_payload(releases=[])]},
+                "release-group": {"count": 1, "release-groups": [release_group_payload()]},
+                "artist": {"count": 1, "artists": [artist_payload()]},
+            }
+        )
     )
     search = MusicBrainzSearch(client, StubImages())
 
@@ -125,4 +93,4 @@ def test_all_aggregates_five_of_each_without_playlists():
     assert [album.id for album in response.albums] == ["rg:group-1"]
     assert [artist.id for artist in response.artists] == [ARTIST_MBID]
     assert response.playlists == []
-    assert [call[1]["limit"] for call in client.calls] == [5, 5, 5]
+    assert [call[2]["limit"] for call in client.calls] == [5, 5, 5]

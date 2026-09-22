@@ -7,15 +7,21 @@ whose methods raise ``NotImplementedError`` (the runtime maps that to ``unsuppor
 
 from musicare_metadata_plugin_sdk import (
     BaseMetadataPlugin,
+    IAlbum,
+    IArtist,
     ICore,
     ISearch,
+    ITrack,
 )
 
 from .credentials import Credentials
 from .http import HttpClient
 from .images.wikidata import WikidataArtistImages
+from .segments.album import MusicBrainzAlbum
+from .segments.artist import MusicBrainzArtist
 from .segments.core import MusicBrainzCore
 from .segments.search import MusicBrainzSearch
+from .segments.track import MusicBrainzTrack
 
 PLUGIN_ID = "org.musicare.metadata.musicbrainz"
 PLUGIN_NAME = "MusicBrainz & ListenBrainz"
@@ -29,6 +35,9 @@ class MusicBrainzPlugin(BaseMetadataPlugin):
         self._credentials = Credentials()
         self._core = MusicBrainzCore()
         self._search = MusicBrainzSearch(client, self._images)
+        self._album = MusicBrainzAlbum(client)
+        self._artist = MusicBrainzArtist(client, self._images)
+        self._track = MusicBrainzTrack(client)
 
     @property
     def id(self) -> str:
@@ -49,3 +58,15 @@ class MusicBrainzPlugin(BaseMetadataPlugin):
     @property
     def search(self) -> ISearch:
         return self._search
+
+    @property
+    def album(self) -> IAlbum:
+        return self._album
+
+    @property
+    def artist(self) -> IArtist:
+        return self._artist
+
+    @property
+    def track(self) -> ITrack:
+        return self._track
