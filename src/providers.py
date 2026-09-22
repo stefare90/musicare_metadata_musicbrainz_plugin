@@ -13,6 +13,15 @@ COVER_ART_ARCHIVE = "https://coverartarchive.org/"
 SAVED_ALBUMS_PLAYLIST = "__GYAWUN_ALBUMS__"
 SAVED_ARTISTS_PLAYLIST = "__GYAWUN_ARTISTS__"
 
+# The mood radios offered by the browse section, as ``(tag, title)`` pairs.
+MOOD_PLAYLISTS = (
+    ("romantic", "Romantic Mood"),
+    ("chill", "Chill Mood"),
+    ("happy", "Happy Mood"),
+    ("sad", "Sad Mood"),
+    ("focus", "Focus Mood"),
+)
+
 # Album cover sizes, matching the old plugin so cached artwork stays valid.
 COVER_SIZES = (250, 500)
 RELEASE_GROUP_COVER_SIZES = (250, 500, 1200)

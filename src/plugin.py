@@ -9,19 +9,28 @@ from musicare_metadata_plugin_sdk import (
     BaseMetadataPlugin,
     IAlbum,
     IArtist,
+    IAuth,
+    IBrowse,
     ICore,
+    IPlaylist,
     ISearch,
     ITrack,
+    IUser,
 )
 
 from .credentials import Credentials
 from .http import HttpClient
 from .images.wikidata import WikidataArtistImages
+from .listenbrainz import ListenBrainz
 from .segments.album import MusicBrainzAlbum
 from .segments.artist import MusicBrainzArtist
+from .segments.auth import MusicBrainzAuth
+from .segments.browse import MusicBrainzBrowse
 from .segments.core import MusicBrainzCore
+from .segments.playlist import MusicBrainzPlaylist
 from .segments.search import MusicBrainzSearch
 from .segments.track import MusicBrainzTrack
+from .segments.user import MusicBrainzUser
 
 PLUGIN_ID = "org.musicare.metadata.musicbrainz"
 PLUGIN_NAME = "MusicBrainz & ListenBrainz"
@@ -31,13 +40,20 @@ PLUGIN_VERSION = "1.0.0"
 class MusicBrainzPlugin(BaseMetadataPlugin):
     def __init__(self) -> None:
         client = HttpClient()
-        self._images = WikidataArtistImages(client)
-        self._credentials = Credentials()
+        credentials = Credentials()
+        images = WikidataArtistImages(client)
+        listenbrainz = ListenBrainz(client, credentials)
+
+        self._credentials = credentials
         self._core = MusicBrainzCore()
-        self._search = MusicBrainzSearch(client, self._images)
-        self._album = MusicBrainzAlbum(client)
-        self._artist = MusicBrainzArtist(client, self._images)
-        self._track = MusicBrainzTrack(client)
+        self._search = MusicBrainzSearch(client, images)
+        self._user = MusicBrainzUser(listenbrainz, client, images)
+        self._auth = MusicBrainzAuth(listenbrainz, credentials)
+        self._album = MusicBrainzAlbum(client, self._user)
+        self._artist = MusicBrainzArtist(client, images, self._user)
+        self._track = MusicBrainzTrack(client, self._user)
+        self._playlist = MusicBrainzPlaylist(listenbrainz, client, self._user)
+        self._browse = MusicBrainzBrowse(listenbrainz, self._user)
 
     @property
     def id(self) -> str:
@@ -70,3 +86,19 @@ class MusicBrainzPlugin(BaseMetadataPlugin):
     @property
     def track(self) -> ITrack:
         return self._track
+
+    @property
+    def playlist(self) -> IPlaylist:
+        return self._playlist
+
+    @property
+    def user(self) -> IUser:
+        return self._user
+
+    @property
+    def auth(self) -> IAuth:
+        return self._auth
+
+    @property
+    def browse(self) -> IBrowse:
+        return self._browse

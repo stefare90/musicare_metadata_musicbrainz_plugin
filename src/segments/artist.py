@@ -7,7 +7,7 @@ bounded by a time budget and returns a partial page rather than stalling the cal
 """
 
 import time
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from musicare_metadata_plugin_sdk import (
     Album,
@@ -46,9 +46,15 @@ def _rating_average(recording: Dict[str, Any]) -> float:
 
 
 class MusicBrainzArtist(IArtist):
-    def __init__(self, client: HttpClient, images: WikidataArtistImages) -> None:
+    def __init__(
+        self,
+        client: HttpClient,
+        images: WikidataArtistImages,
+        user: Optional[Any] = None,
+    ) -> None:
         self._client = client
         self._images = images
+        self._user = user
 
     def _fetch_artist(self, mbid: str) -> Dict[str, Any]:
         return self._client.get_json(
@@ -171,3 +177,11 @@ class MusicBrainzArtist(IArtist):
         return PaginatedResult(
             items=items, total=len(candidates), offset=offset, limit=limit
         )
+
+    def save(self, ids: List[str]) -> None:
+        for artist_id in ids:
+            self._user.save_artist(artist_id)
+
+    def unsave(self, ids: List[str]) -> None:
+        for artist_id in ids:
+            self._user.unsave_artist(artist_id)

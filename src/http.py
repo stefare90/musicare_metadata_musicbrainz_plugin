@@ -18,6 +18,7 @@ from email.utils import parsedate_to_datetime
 from typing import Any, Dict, Mapping, Optional
 
 from musicare_metadata_plugin_sdk import (
+    AuthRequiredError,
     MetadataPluginError,
     NotFoundError,
     RateLimitedError,
@@ -170,6 +171,9 @@ class HttpClient:
                 )
             if status == 404:
                 raise NotFoundError(f"{target} returned 404")
+            if status in (401, 403):
+                # A rejected credential is the host's cue to open the login flow again.
+                raise AuthRequiredError(f"{target} rejected the credentials (HTTP {status})")
             if not 200 <= status < 300:
                 raise TransportError(f"HTTP {status} for {target}: {text[:200]}")
             return _parse_json(text, target)

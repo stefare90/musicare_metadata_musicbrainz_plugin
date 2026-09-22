@@ -5,7 +5,7 @@ for a JSPF playlist, and resolves the returned recording MBIDs back through Musi
 every track carries a complete album.
 """
 
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from musicare_metadata_plugin_sdk import ITrack, Track
 
@@ -17,8 +17,9 @@ _TRACK_INCLUDES = "artist-credits+releases+release-groups+isrcs"
 
 
 class MusicBrainzTrack(ITrack):
-    def __init__(self, client: HttpClient) -> None:
+    def __init__(self, client: HttpClient, user: Optional[Any] = None) -> None:
         self._client = client
+        self._user = user
 
     def get_track(self, id: str) -> Track:
         data = self._client.get_json(
@@ -55,6 +56,14 @@ class MusicBrainzTrack(ITrack):
             for recording in recordings.get("recordings") or []
             if isinstance(recording, dict)
         ]
+
+    def save(self, ids: List[str]) -> None:
+        for track_id in ids:
+            self._user.save_track(track_id)
+
+    def unsave(self, ids: List[str]) -> None:
+        for track_id in ids:
+            self._user.unsave_track(track_id)
 
     @staticmethod
     def _radio_prompt(seed: Dict[str, Any]) -> str:

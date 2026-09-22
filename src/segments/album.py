@@ -7,7 +7,7 @@ library and are implemented by the ``IUser``/``IPlaylist`` slice.
 """
 
 from dataclasses import replace
-from typing import Any, Dict, List
+from typing import Any, Dict, List, Optional
 
 from musicare_metadata_plugin_sdk import (
     Album,
@@ -25,8 +25,9 @@ _RELEASE_INCLUDES = "artist-credits+recordings+release-groups"
 
 
 class MusicBrainzAlbum(IAlbum):
-    def __init__(self, client: HttpClient) -> None:
+    def __init__(self, client: HttpClient, user: Optional[Any] = None) -> None:
         self._client = client
+        self._user = user
 
     def _resolve_release_id(self, album_id: str) -> str:
         if not album_id.startswith("rg:"):
@@ -83,3 +84,11 @@ class MusicBrainzAlbum(IAlbum):
         if not isinstance(total, int):
             total = len(items)
         return PaginatedResult(items=items, total=total, offset=offset, limit=limit)
+
+    def save(self, ids: List[str]) -> None:
+        for album_id in ids:
+            self._user.save_album(album_id)
+
+    def unsave(self, ids: List[str]) -> None:
+        for album_id in ids:
+            self._user.unsave_album(album_id)
