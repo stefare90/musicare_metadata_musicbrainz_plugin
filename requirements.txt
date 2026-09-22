@@ -1,2 +1,1 @@
-# Runtime dependencies are intentionally empty: the plugin is 100% Pure-Python and uses
-# only the standard library, so nothing is vendored into plugin.zip.
+certifi>=2024.0.0

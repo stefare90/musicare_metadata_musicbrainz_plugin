@@ -40,7 +40,7 @@ def _http_error(status, headers=None, body=""):
 
 
 def _raise(error):
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request, timeout=None, **kwargs):
         raise error
 
     return fake_urlopen
@@ -49,7 +49,7 @@ def _raise(error):
 def test_get_json_sends_identity_headers_and_encodes_params(monkeypatch):
     captured = {}
 
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request, timeout=None, **kwargs):
         captured["request"] = request
         captured["timeout"] = timeout
         return FakeResponse(200, json.dumps({"ok": True}))
@@ -71,7 +71,7 @@ def test_get_json_sends_identity_headers_and_encodes_params(monkeypatch):
 
 def test_empty_body_is_none(monkeypatch):
     monkeypatch.setattr(
-        http.urllib.request, "urlopen", lambda request, timeout=None: FakeResponse(200, "  ")
+        http.urllib.request, "urlopen", lambda request, timeout=None, **kwargs: FakeResponse(200, "  ")
     )
 
     assert http.HttpClient(rate_limits={}).post_json("https://example.test/x") is None
@@ -79,7 +79,7 @@ def test_empty_body_is_none(monkeypatch):
 
 def test_invalid_json_is_a_transport_error(monkeypatch):
     monkeypatch.setattr(
-        http.urllib.request, "urlopen", lambda request, timeout=None: FakeResponse(200, "<html>")
+        http.urllib.request, "urlopen", lambda request, timeout=None, **kwargs: FakeResponse(200, "<html>")
     )
 
     with pytest.raises(TransportError):
@@ -109,7 +109,7 @@ def test_optional_call_absorbs_every_failure(monkeypatch):
 def test_rate_limited_is_retried_then_reported(monkeypatch):
     calls = {"count": 0}
 
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request, timeout=None, **kwargs):
         calls["count"] += 1
         raise _http_error(429, headers={"Retry-After": "0"})
 
@@ -126,7 +126,7 @@ def test_retry_after_zero_is_respected(monkeypatch):
     calls = {"count": 0}
     sleeps = []
 
-    def fake_urlopen(request, timeout=None):
+    def fake_urlopen(request, timeout=None, **kwargs):
         calls["count"] += 1
         if calls["count"] == 1:
             raise _http_error(503, headers={"Retry-After": "0"})
@@ -151,7 +151,7 @@ def test_musicbrainz_minimum_interval_is_enforced(monkeypatch):
     monkeypatch.setattr(http.time, "monotonic", lambda: clock["now"])
     monkeypatch.setattr(http.time, "sleep", fake_sleep)
     monkeypatch.setattr(
-        http.urllib.request, "urlopen", lambda request, timeout=None: FakeResponse(200, "{}")
+        http.urllib.request, "urlopen", lambda request, timeout=None, **kwargs: FakeResponse(200, "{}")
     )
     client = http.HttpClient(rate_limits={"musicbrainz.org": 1.0})
 

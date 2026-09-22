@@ -9,6 +9,7 @@ for ``Retry-After`` on 429/503, and the mapping from HTTP outcomes to the SDK er
 
 import json
 import socket
+import ssl
 import time
 import urllib.error
 import urllib.parse
@@ -35,6 +36,20 @@ RATE_LIMITS: Dict[str, float] = {"musicbrainz.org": 1.0}
 
 _RETRYABLE_STATUS = (429, 503)
 _RETRYABLE_ATTEMPTS = 3
+
+
+def _ssl_context() -> ssl.SSLContext:
+    """Build the TLS context, preferring certifi's CA bundle.
+
+    The CPython embedded in the Android app ships no system CA store, so a plain
+    ``urlopen`` fails with ``CERTIFICATE_VERIFY_FAILED``. ``certifi`` is pure-Python and
+    is vendored into ``plugin.zip``; on a desktop the system store would work as well.
+    """
+    try:
+        import certifi
+    except ImportError:
+        return ssl.create_default_context()
+    return ssl.create_default_context(cafile=certifi.where())
 
 
 def _header(headers: Mapping[str, str], name: str) -> Optional[str]:
@@ -96,6 +111,7 @@ class HttpClient:
         self._timeout = timeout
         self._rate_limits = dict(rate_limits or RATE_LIMITS)
         self._last_request: Dict[str, float] = {}
+        self._ssl_context = _ssl_context()
 
     def _throttle(self, url: str) -> None:
         host = urllib.parse.urlsplit(url).netloc
@@ -119,7 +135,9 @@ class HttpClient:
     ):
         request = urllib.request.Request(url, data=data, headers=dict(headers), method=method)
         try:
-            with urllib.request.urlopen(request, timeout=timeout) as response:
+            with urllib.request.urlopen(
+                request, timeout=timeout, context=self._ssl_context
+            ) as response:
                 return response.status, dict(response.headers), response.read().decode("utf-8", "replace")
         except urllib.error.HTTPError as error:
             body = error.read().decode("utf-8", "replace")
