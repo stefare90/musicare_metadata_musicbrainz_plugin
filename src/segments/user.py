@@ -148,7 +148,8 @@ class MusicBrainzUser(IUser):
 
     # --- saved playlists -----------------------------------------------------------
 
-    def saved_playlists(self, offset: int = 0, limit: int = 20) -> PaginatedResult[Playlist]:
+    def saved_playlist_items(self) -> List[Playlist]:
+        """Every saved playlist, before pagination (search filters over this list)."""
         username = self._lb.username()
         items: List[Playlist] = []
         for entry in self._lb.user_playlists(username):
@@ -175,6 +176,10 @@ class MusicBrainzUser(IUser):
                     images=[],
                 )
             )
+        return items
+
+    def saved_playlists(self, offset: int = 0, limit: int = 20) -> PaginatedResult[Playlist]:
+        items = self.saved_playlist_items()
         return PaginatedResult(
             items=items[offset : offset + limit],
             total=len(items),

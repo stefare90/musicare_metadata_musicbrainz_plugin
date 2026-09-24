@@ -1,11 +1,12 @@
 """``ISearch``: text search over MusicBrainz.
 
 Recordings become tracks, release groups become albums, artists are enriched with their
-Wikidata image. ``playlists`` stays empty: the ListenBrainz catalogue has no public text
-search, and adding one is a separate feature (the host already renders the chip).
+Wikidata image. ListenBrainz has no public playlist search, so ``playlists`` filters the
+user's own saved playlists locally; without a token the public ``listenbrainz`` account is
+used, which surfaces its curated playlists.
 """
 
-from typing import Any, Dict, List
+from typing import Any, List
 
 from musicare_metadata_plugin_sdk import (
     Album,
@@ -40,12 +41,18 @@ def _page(data: Any, key: str, parser, offset: int, limit: int):
 
 
 class MusicBrainzSearch(ISearch):
-    def __init__(self, client: HttpClient, images: WikidataArtistImages) -> None:
+    def __init__(self, client: HttpClient, images: WikidataArtistImages, user: Any) -> None:
         self._client = client
         self._images = images
+        self._user = user
 
     def chips(self) -> List[SearchCategory]:
-        return [SearchCategory.TRACKS, SearchCategory.ALBUMS, SearchCategory.ARTISTS]
+        return [
+            SearchCategory.TRACKS,
+            SearchCategory.ALBUMS,
+            SearchCategory.ARTISTS,
+            SearchCategory.PLAYLISTS,
+        ]
 
     def _search(self, entity: str, query: str, offset: int, limit: int) -> Any:
         return self._client.get_json(
@@ -72,15 +79,28 @@ class MusicBrainzSearch(ISearch):
         )
 
     def playlists(self, query: str, offset: int = 0, limit: int = 20) -> PaginatedResult[Playlist]:
-        return PaginatedResult(items=[], total=0, offset=offset, limit=limit)
+        needle = query.casefold()
+        items = [
+            playlist
+            for playlist in self._user.saved_playlist_items()
+            if needle in playlist.name.casefold()
+            or needle in playlist.description.casefold()
+        ]
+        return PaginatedResult(
+            items=items[offset : offset + limit],
+            total=len(items),
+            offset=offset,
+            limit=limit,
+        )
 
     def all(self, query: str) -> SearchResponse:
         tracks = self.tracks(query, limit=_AGGREGATE_LIMIT)
         albums = self.albums(query, limit=_AGGREGATE_LIMIT)
         artists = self.artists(query, limit=_AGGREGATE_LIMIT)
+        playlists = self.playlists(query, limit=_AGGREGATE_LIMIT)
         return SearchResponse(
             albums=albums.items,
             artists=artists.items,
-            playlists=[],
+            playlists=playlists.items,
             tracks=tracks.items,
         )

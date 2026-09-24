@@ -9,7 +9,7 @@ import time
 
 import pytest
 
-from musicare_metadata_plugin_sdk import RateLimitedError
+from musicare_metadata_plugin_sdk import RateLimitedError, SearchCategory
 
 from src.http import HttpClient
 from src.images.wikidata import WikidataArtistImages
@@ -49,6 +49,16 @@ def _search_details_round_trip():
     artists = plugin.search.artists("radiohead", limit=5)
     assert artists.items
     assert plugin.artist.get_artist(artists.items[0].id).name
+
+
+def test_search_playlists_filters_the_curated_account():
+    plugin = get_plugin()
+
+    assert SearchCategory.PLAYLISTS in plugin.search.chips()
+    page = plugin.search.playlists("weekly", limit=5)
+
+    assert page.items
+    assert page.total >= len(page.items)
 
 
 def test_album_tracks_are_complete():

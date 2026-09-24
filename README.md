@@ -52,7 +52,7 @@ test/                # pytest suite (offline by default, live tests behind -m li
 | `ICore` | `support` | implemented (repo issues URL) |
 | `ICore` | `check_update`, `scrobble` | **unsupported** (as in the old plugin) |
 | `ISearch` | `chips`, `all`, `tracks`, `albums`, `artists` | implemented against MusicBrainz |
-| `ISearch` | `playlists` | empty page: ListenBrainz has no public playlist search |
+| `ISearch` | `playlists` | implemented: local filter over the user's saved ListenBrainz playlists |
 | `IAlbum` | `get_album`, `tracks`, `save`, `unsave` | implemented |
 | `IArtist` | `get_artist`, `top_tracks`, `albums`, `related`, `save`, `unsave` | implemented |
 | `ITrack` | `get_track`, `radio`, `save`, `unsave` | implemented |
@@ -77,8 +77,15 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
 - `artist.related` ("Fans Also Like") uses the ListenBrainz Labs similarity endpoint; each
   suggestion needs a MusicBrainz lookup, so the fan-out is capped by a 15 s budget and a
   partial page is returned rather than stalling the caller.
-- `search.playlists` returns an empty page and `chips()` omits the Playlists category.
-  Adding them is a separate planned feature.
+- `search.playlists` has no public provider to call: ListenBrainz exposes no playlist text
+  search. It filters the **user's saved playlists** locally, case insensitively, over both
+  `name` and `description`, then paginates the filtered list (`total` is the filtered
+  count). Without a token the public `listenbrainz` account is used, so its curated
+  playlists (Weekly Exploration / Weekly Jams) surface; `chips()` declares the category and
+  `all()` includes up to five playlists. They carry no covers (`images` empty), so the host
+  shows its fallback icon. Search follows the **uniform error policy**: a failed
+  ListenBrainz call is a retryable error that fails `all()` too, exactly like a failed
+  MusicBrainz call on the other categories.
 
 ## Authentication
 
@@ -143,10 +150,12 @@ python3 -m venv .venv
 # build plugin.zip (validates the manifest, audits Pure-Python, writes the archive)
 .venv/bin/musicare-build
 
-# certify against the platform harness (Linux, or an Android device id)
+# certify against the platform harness (Linux, or an Android device id).
+# `weekly` matches the curated anonymous playlists; `radiohead` returns none for them,
+# and the harness treats an empty expected method as a failure.
 ../musicare_plugin_sdk/dart/harness/test_metadata_plugin.sh linux \
-  "$(realpath plugin.zip)" "radiohead" \
-  "core.support,search.chips,search.tracks,search.albums,search.artists,album.getAlbum,artist.getArtist,track.getTrack"
+  "$(realpath plugin.zip)" "weekly" \
+  "core.support,search.chips,search.tracks,search.albums,search.artists,search.playlists,album.getAlbum,artist.getArtist,track.getTrack"
 ```
 
 `musicare-build` comes from `musicare-plugin-builder` (a dev dependency; the metadata SDK
