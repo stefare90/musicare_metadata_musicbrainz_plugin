@@ -11,7 +11,7 @@ def test_get_plugin_returns_a_metadata_plugin():
     assert isinstance(plugin, BaseMetadataPlugin)
     assert plugin.id == "org.musicare.metadata.musicbrainz"
     assert plugin.name == "MusicBrainz & ListenBrainz"
-    assert plugin.version == "1.1.0"
+    assert plugin.version == "1.2.0"
 
 
 def test_implemented_interfaces_behave_without_network():

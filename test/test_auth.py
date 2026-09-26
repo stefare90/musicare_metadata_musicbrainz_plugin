@@ -4,6 +4,7 @@ from musicare_metadata_plugin_sdk import (
     Authenticated,
     AuthContext,
     Failed,
+    FormInputField,
     NeedsForm,
     TransportError,
 )
@@ -30,8 +31,11 @@ def test_start_asks_for_the_token_when_unauthenticated(tmp_path):
     action = auth.start(_ctx(tmp_path))
 
     assert isinstance(action, NeedsForm)
+    assert action.title == "Connect to ListenBrainz"
+    assert action.message == "Paste the personal token from your ListenBrainz profile."
     assert action.fields[0].id == "token"
     assert action.fields[0].is_password is True
+    assert action.fields[0].help_url == "https://listenbrainz.org/profile/"
 
 
 def test_start_reports_authenticated_when_a_token_is_stored(tmp_path):
@@ -61,6 +65,7 @@ def test_complete_rejects_an_invalid_token(tmp_path):
 
     assert isinstance(action, Failed)
     assert action.code == "auth_required"
+    assert not isinstance(action, NeedsForm)
     assert credentials.is_authenticated is False
 
 
@@ -94,3 +99,17 @@ def test_logout_clears_the_stored_token(tmp_path):
     auth.logout(ctx)
 
     assert auth.is_authenticated(ctx) is False
+
+
+def test_form_copy_is_optional_in_the_model():
+    field = FormInputField(id="token", label="ListenBrainz token")
+    form = NeedsForm([field])
+
+    assert form.title is None
+    assert form.message is None
+    assert field.help_url is None
+    assert field.to_dict() == {
+        "id": "token",
+        "label": "ListenBrainz token",
+        "is_password": False,
+    }

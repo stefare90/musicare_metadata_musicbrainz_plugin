@@ -2,7 +2,7 @@
 
 Official MusicAre **metadata** plugin, written in **100% Pure-Python**. It implements the
 `musicare_metadata_plugin_sdk` contracts and is loaded by the MusicAre metadata runtime
-(`musicare_plugin_sdk`, `pluginSdkVersion 4.0.0`). It replaces the archived Dart bytecode
+(`musicare_plugin_sdk`, `pluginSdkVersion 4.1.0`). It replaces the archived Dart bytecode
 plugin (`gyawun_metadata_plugin`), whose behaviour it preserves.
 
 Providers: **MusicBrainz** (search, releases, release groups, recordings, ratings),
@@ -24,7 +24,10 @@ build chain.
   Python, vendored into `plugin.zip`: the CPython embedded in the Android app ships no CA
   store, so without it HTTPS fails with `CERTIFICATE_VERIFY_FAILED`. It is the same reason
   the YouTube audio plugin vendors it.
-- `pluginSdkVersion: 4.0.0`. The matching host SDK is `musicare_metadata_host_sdk`.
+- `pluginSdkVersion: 4.1.0`. The matching host SDK is `musicare_metadata_host_sdk`.
+  **The plugin requires a host SDK `4.1.0`**: an app still on `4.0.0` rejects it (the
+  user sees the update page), because it uses the form-level `title`/`message` and the
+  per-field `help_url` added in that version.
 
 ## Layout
 
@@ -91,8 +94,11 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
 
 The flow is a small state machine the host drives over the `auth.*` calls:
 
-- `start` → `NeedsForm([token])` when no token is stored, `Authenticated()` when there is
-  one. It is idempotent, so it is also how `auth.status` polls.
+- `start` → `NeedsForm([token])` with form copy when no token is stored, `Authenticated()`
+  when there is one. `title` is "Connect to ListenBrainz", `message` is "Paste the
+  personal token from your ListenBrainz profile." and the field's `help_url` is
+  https://listenbrainz.org/profile/. This is **provider copy shown verbatim**: the host
+  does not translate it. The call is idempotent, so it is also how `auth.status` polls.
 - `complete` validates the token against ListenBrainz `validate-token`; a valid token is
   stored in the plugin data directory as `auth.json` and `Authenticated()` is returned.
   A rejected token is a `Failed(code=auth_required)` outcome; a network failure is

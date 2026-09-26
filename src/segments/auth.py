@@ -25,7 +25,16 @@ from musicare_metadata_plugin_sdk import (
 from ..credentials import Credentials
 from ..listenbrainz import ListenBrainz
 
-_TOKEN_FIELD = FormInputField(id="token", label="ListenBrainz token", is_password=True)
+_TOKEN_HELP_URL = "https://listenbrainz.org/profile/"
+_TOKEN_FORM_TITLE = "Connect to ListenBrainz"
+_TOKEN_FORM_MESSAGE = "Paste the personal token from your ListenBrainz profile."
+
+_TOKEN_FIELD = FormInputField(
+    id="token",
+    label="ListenBrainz token",
+    is_password=True,
+    help_url=_TOKEN_HELP_URL,
+)
 
 
 class MusicBrainzAuth(IAuth):
@@ -36,7 +45,9 @@ class MusicBrainzAuth(IAuth):
     def start(self, ctx: AuthContext) -> AuthAction:
         if self._credentials.load(ctx):
             return Authenticated()
-        return NeedsForm([_TOKEN_FIELD])
+        return NeedsForm(
+            [_TOKEN_FIELD], title=_TOKEN_FORM_TITLE, message=_TOKEN_FORM_MESSAGE
+        )
 
     def complete(self, ctx: AuthContext, values: Dict[str, str]) -> AuthAction:
         token = str((values or {}).get("token") or "").strip()
