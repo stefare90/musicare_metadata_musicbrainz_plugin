@@ -2,7 +2,12 @@
 
 import pytest
 
-from musicare_metadata_plugin_sdk import AuthRequiredError, Image, TransportError
+from musicare_metadata_plugin_sdk import (
+    AuthContext,
+    AuthRequiredError,
+    Image,
+    TransportError,
+)
 
 from src.credentials import Credentials
 from src.listenbrainz import ListenBrainz
@@ -166,6 +171,18 @@ def test_top_tracks_serve_pages_from_the_buffered_ranking(tmp_path):
 
     assert len(client.calls) == 1
     assert [track.id for track in page.items] == ["rec-5", "rec-4", "rec-3", "rec-2"]
+
+
+def test_top_tracks_are_not_served_from_the_buffer_after_logout(tmp_path):
+    client = StubClient(lambda url, params: [_entry("rec-1", count=10)])
+    lb, credentials = authenticated_lb(client, tmp_path)
+    artist = _artist(client, lb=lb)
+
+    artist.top_tracks("artist-1")
+    credentials.clear(AuthContext(data_dir=str(tmp_path), plugin_id="test"))
+
+    with pytest.raises(AuthRequiredError):
+        artist.top_tracks("artist-1")
 
 
 def test_top_tracks_build_album_and_covers_from_the_entry(tmp_path):

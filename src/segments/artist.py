@@ -133,10 +133,11 @@ class MusicBrainzArtist(IArtist):
         )
 
     def _popular_tracks(self, id: str) -> List[Track]:
+        # Checked before the buffer: after a logout a cached ranking must not be served.
+        self._lb.require_auth()
         cached = self._popular.get(id)
         if cached is not None:
             return cached
-        # No token raises `AuthRequiredError` here: the ranking only exists on ListenBrainz.
         data = self._lb.top_recordings_for_artist(id)
         if not isinstance(data, list):
             raise TransportError("ListenBrainz returned an unexpected popularity response")
