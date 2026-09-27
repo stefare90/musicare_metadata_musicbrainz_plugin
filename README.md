@@ -79,7 +79,14 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   by MusicBrainz rating, then paginated locally.
 - `artist.related` ("Fans Also Like") uses the ListenBrainz Labs similarity endpoint; each
   suggestion needs a MusicBrainz lookup, so the fan-out is capped by a 15 s budget and a
-  partial page is returned rather than stalling the caller.
+  partial page is returned rather than stalling the caller. It is a **visible section**, so
+  a failed Labs call is raised as a **retryable error** (the host shows the retry box); a
+  reachable service that knows no similar artist answers `[]`, which stays a legitimate
+  empty result (the section is hidden, not broken).
+- Radios — `track.radio` and the synthetic `radio:artist:*` / `radio:tag:*` playlist ids
+  (the Home **Mood Playlists**) — are **authenticated**: ListenBrainz `lb-radio` requires
+  the token. Signed out, the plugin raises `auth_required` before any request, so the host
+  shows the sign-in invitation instead of a raw 401.
 - `search.playlists` has no public provider to call: ListenBrainz exposes no playlist text
   search. It filters the **user's saved playlists** locally, case insensitively, over both
   `name` and `description`, then paginates the filtered list (`total` is the filtered
@@ -128,6 +135,13 @@ only prompts for the token.
   the matching retryable SDK error so the host can retry; it is never cached, so a retry
   really re-queries. The rule is the same for every call site (search, detail, related,
   saved), so the behaviour is uniform and the app stays agnostic.
+- **Degradation is decided by *where the data appears*, not by "is the call optional".**
+  Enrichment *inside* a response that exists anyway (images, accessory fields) may degrade
+  silently. The **primary content of a section the user sees** (e.g. "Fans Also Like")
+  must fail with a typed error — `retryable` on a network cause — never an empty result:
+  a reachable provider that has no data is a legitimate empty, an unreachable or anomalous
+  one is an error. This is why `related()` propagates instead of using a best-effort
+  helper.
 - **`User-Agent`** identifies the plugin; **`Retry-After`** is honoured on 429/503 with up
   to three attempts; MusicBrainz is throttled to one request per second.
 - **Artist images come from the Wikidata MediaWiki API**, not from SPARQL: two calls

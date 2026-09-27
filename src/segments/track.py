@@ -10,14 +10,21 @@ from typing import Any, Dict, List, Optional
 from musicare_metadata_plugin_sdk import ITrack, Track
 
 from ..http import HttpClient
+from ..listenbrainz import ListenBrainz
 from ..mapping import build_track, recording_artist_ids, recording_tag_names
-from ..providers import LISTENBRAINZ_API, MUSICBRAINZ_API
+from ..providers import MUSICBRAINZ_API
 
 _TRACK_INCLUDES = "artist-credits+releases+release-groups+isrcs"
 
 
 class MusicBrainzTrack(ITrack):
-    def __init__(self, client: HttpClient, user: Optional[Any] = None) -> None:
+    def __init__(
+        self,
+        lb: ListenBrainz,
+        client: HttpClient,
+        user: Optional[Any] = None,
+    ) -> None:
+        self._lb = lb
         self._client = client
         self._user = user
 
@@ -29,15 +36,14 @@ class MusicBrainzTrack(ITrack):
         return build_track(data)
 
     def radio(self, id: str) -> List[Track]:
+        # `lb-radio` needs a token, so fail before the seed lookup instead of after it.
+        self._lb.require_auth()
         seed = self._client.get_json(
             f"{MUSICBRAINZ_API}recording/{id}",
             params={"fmt": "json", "inc": "artist-credits+tags"},
         )
         prompt = self._radio_prompt(seed)
-        radio_data = self._client.get_json(
-            f"{LISTENBRAINZ_API}explore/lb-radio",
-            params={"prompt": prompt, "mode": "easy"},
-        )
+        radio_data = self._lb.radio(prompt)
         recording_ids = self._recording_ids(radio_data)
         if not recording_ids:
             return []

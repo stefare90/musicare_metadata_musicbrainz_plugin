@@ -10,24 +10,24 @@ class StubClient:
     """Routes requests through handlers and records every call.
 
     ``calls`` entries are ``(kind, url, payload)`` where ``payload`` is the query params
-    for a GET and the JSON body for a POST.
+    for a GET and the JSON body for a POST. ``headers`` is a parallel list (same index)
+    holding the headers each request carried, so tests can assert on the auth header.
     """
 
     def __init__(self, handler=None, post_handler=None):
         self.handler = handler or (lambda url, params: {})
         self.post_handler = post_handler or (lambda url, body: {})
         self.calls = []
+        self.headers = []
 
-    def get_json(self, url, params=None, **kwargs):
+    def get_json(self, url, params=None, headers=None, **kwargs):
         self.calls.append(("get", url, params))
-        return self.handler(url, params)
-
-    def get_json_or_none(self, url, params=None, **kwargs):
-        self.calls.append(("optional", url, params))
+        self.headers.append(headers or {})
         return self.handler(url, params)
 
     def post_json(self, url, params=None, headers=None, body=None, **kwargs):
         self.calls.append(("post", url, body))
+        self.headers.append(headers or {})
         return self.post_handler(url, body)
 
 

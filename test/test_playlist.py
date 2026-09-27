@@ -2,8 +2,10 @@
 
 import pytest
 
-from musicare_metadata_plugin_sdk import NotFoundError
+from musicare_metadata_plugin_sdk import AuthRequiredError, NotFoundError
 
+from src.credentials import Credentials
+from src.listenbrainz import ListenBrainz
 from src.segments.playlist import MusicBrainzPlaylist
 
 from ._stubs import StubClient, authenticated_lb
@@ -99,6 +101,17 @@ def test_radio_tracks_are_materialised_from_lb_radio(tmp_path):
     assert [track.id for track in page.items] == ["t9"]
     assert page.total == 1
     assert client.calls[0][2]["prompt"] == "tag:(chill)"
+    assert client.headers[0]["Authorization"] == "Token token"
+
+
+def test_radio_tracks_require_a_token(tmp_path):
+    client = StubClient(lambda url, params: pytest.fail("no request must be made"))
+    playlist = MusicBrainzPlaylist(ListenBrainz(client, Credentials()), client, FakeUser())
+
+    with pytest.raises(AuthRequiredError):
+        playlist.tracks("radio:tag:chill")
+
+    assert client.calls == []
 
 
 def test_radio_playlist_metadata_is_synthesised(tmp_path):

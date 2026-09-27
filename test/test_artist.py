@@ -1,6 +1,8 @@
 """``IArtist``: profile, discography, top tracks and related artists."""
 
-from musicare_metadata_plugin_sdk import Image
+import pytest
+
+from musicare_metadata_plugin_sdk import Image, TransportError
 
 from src.segments.artist import MusicBrainzArtist
 
@@ -76,14 +78,38 @@ def test_top_tracks_pages_manually_and_survives_an_empty_response():
     assert (page.offset, page.limit) == (5, 10)
 
 
-def test_related_degrades_to_empty_when_labs_fails():
+def test_related_raises_when_labs_is_unreachable():
     def handler(url, params):
-        return {"error": "unavailable"}
+        raise TransportError("labs is down")
+
+    with pytest.raises(TransportError):
+        MusicBrainzArtist(StubClient(handler), StubImages()).related("artist-1")
+
+
+def test_related_is_empty_when_the_service_knows_no_similar_artist():
+    def handler(url, params):
+        return []
 
     page = MusicBrainzArtist(StubClient(handler), StubImages()).related("artist-1")
 
     assert page.items == []
     assert page.total == 0
+
+
+def test_related_raises_on_an_unexpected_labs_response():
+    def handler(url, params):
+        return {"error": "unavailable"}
+
+    with pytest.raises(TransportError):
+        MusicBrainzArtist(StubClient(handler), StubImages()).related("artist-1")
+
+
+def test_related_uses_the_propagating_client():
+    client = StubClient(lambda url, params: [])
+
+    MusicBrainzArtist(client, StubImages()).related("artist-1")
+
+    assert [kind for kind, _, _ in client.calls] == ["get"]
 
 
 def test_related_resolves_the_requested_page_and_keeps_the_total():

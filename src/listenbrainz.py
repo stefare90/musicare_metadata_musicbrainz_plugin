@@ -207,6 +207,8 @@ class ListenBrainz:
 
     def radio(self, prompt: str) -> Dict[str, Any]:
         data = self._client.get_json(
-            f"{LISTENBRAINZ_API}explore/lb-radio", params={"prompt": prompt, "mode": "easy"}
+            f"{LISTENBRAINZ_API}explore/lb-radio",
+            headers=self._headers(required=True),
+            params={"prompt": prompt, "mode": "easy"},
         )
         return data if isinstance(data, dict) else {}

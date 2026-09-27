@@ -20,7 +20,6 @@ from typing import Any, Dict, Mapping, Optional
 
 from musicare_metadata_plugin_sdk import (
     AuthRequiredError,
-    MetadataPluginError,
     NotFoundError,
     RateLimitedError,
     TransportError,
@@ -199,10 +198,3 @@ class HttpClient:
 
     def post_json(self, url: str, **kwargs: Any) -> Any:
         return self.request("POST", url, **kwargs)
-
-    def get_json_or_none(self, url: str, **kwargs: Any) -> Any:
-        """Best-effort variant for optional enrichment: any failure degrades to ``None``."""
-        try:
-            return self.get_json(url, **kwargs)
-        except MetadataPluginError:
-            return None

@@ -15,6 +15,7 @@ from musicare_metadata_plugin_sdk import (
     IArtist,
     PaginatedResult,
     Track,
+    TransportError,
 )
 
 from ..http import HttpClient
@@ -149,12 +150,15 @@ class MusicBrainzArtist(IArtist):
             f"_contribution_{_LABS_CONTRIBUTION}_threshold_{_LABS_THRESHOLD}"
             f"_limit_{_LABS_LIMIT}_filter_{_LABS_FILTER}_skip_{_LABS_SKIP}"
         )
-        candidates = self._client.get_json_or_none(
+        # "Fans Also Like" is a whole section the user sees: a failed call must surface as a
+        # retryable error, not as an empty section. A reachable service that knows no similar
+        # artist answers `[]`, which stays a legitimate empty result (it is hidden, not failed).
+        candidates = self._client.get_json(
             f"{LISTENBRAINZ_LABS}/similar-artists/json",
             params={"artist_mbids": id, "algorithm": algorithm},
         )
         if not isinstance(candidates, list):
-            return PaginatedResult(items=[], total=0, offset=offset, limit=limit)
+            raise TransportError("ListenBrainz Labs returned an unexpected response")
 
         deadline = time.monotonic() + _RELATED_BUDGET_SECONDS
         profiles: List[Dict[str, Any]] = []

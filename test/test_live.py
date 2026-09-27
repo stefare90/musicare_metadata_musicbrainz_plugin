@@ -5,11 +5,17 @@ MusicBrainz, ListenBrainz and Wikidata endpoints through the same entry point th
 uses, so they are the last check before the end-to-end harness.
 """
 
+import os
 import time
 
 import pytest
 
-from musicare_metadata_plugin_sdk import RateLimitedError, SearchCategory
+from musicare_metadata_plugin_sdk import (
+    Authenticated,
+    AuthContext,
+    RateLimitedError,
+    SearchCategory,
+)
 
 from src.http import HttpClient
 from src.images.wikidata import WikidataArtistImages
@@ -87,8 +93,6 @@ def test_wikidata_maps_a_musicbrainz_id_to_the_commons_sizes():
 
 
 def test_browse_is_available_without_authentication():
-    from musicare_metadata_plugin_sdk import AuthContext
-
     plugin = get_plugin()
 
     assert [section.id for section in plugin.browse.sections().items] == [
@@ -99,3 +103,40 @@ def test_browse_is_available_without_authentication():
     assert plugin.browse.section_items("mood_playlists").items
     context = AuthContext(data_dir="/tmp/musicare-metadata-live", plugin_id=plugin.id)
     assert plugin.auth.is_authenticated(context) is False
+
+
+def _authenticated_plugin(tmp_path):
+    token = os.environ.get("LISTENBRAINZ_TOKEN", "").strip()
+    if not token:
+        pytest.skip("LISTENBRAINZ_TOKEN is not set")
+    plugin = get_plugin()
+    context = AuthContext(data_dir=str(tmp_path), plugin_id=plugin.id)
+    assert isinstance(plugin.auth.complete(context, {"token": token}), Authenticated)
+    return plugin
+
+
+def test_radio_returns_tracks_when_authenticated(tmp_path):
+    _retry(lambda: _radio_round_trip(tmp_path))
+
+
+def _radio_round_trip(tmp_path):
+    plugin = _authenticated_plugin(tmp_path)
+    # Anchor on Radiohead: `lb-radio` can answer 400 for a seed whose artist cannot
+    # generate a radio, and a free-text search can return such a track.
+    seed = plugin.artist.top_tracks(RADIOHEAD_MBID, limit=1).items[0]
+
+    tracks = plugin.track.radio(seed.id)
+
+    assert tracks
+
+
+def test_radio_playlist_returns_tracks_when_authenticated(tmp_path):
+    _retry(lambda: _radio_playlist_round_trip(tmp_path))
+
+
+def _radio_playlist_round_trip(tmp_path):
+    plugin = _authenticated_plugin(tmp_path)
+
+    page = plugin.playlist.tracks("radio:tag:chill", limit=5)
+
+    assert page.items

@@ -100,12 +100,6 @@ def test_network_failure_is_a_transport_error(monkeypatch):
         http.HttpClient(rate_limits={}).get_json("https://example.test/x")
 
 
-def test_optional_call_absorbs_every_failure(monkeypatch):
-    monkeypatch.setattr(http.urllib.request, "urlopen", _raise(_http_error(500, body="boom")))
-
-    assert http.HttpClient(rate_limits={}).get_json_or_none("https://example.test/x") is None
-
-
 def test_rate_limited_is_retried_then_reported(monkeypatch):
     calls = {"count": 0}
 
