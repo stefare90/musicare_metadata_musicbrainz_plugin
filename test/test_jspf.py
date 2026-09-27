@@ -61,6 +61,36 @@ def test_album_reference_falls_back_to_the_release():
     assert track.album.external_uri == "https://musicbrainz.org/release/rel-2"
 
 
+def test_album_reference_reads_the_radio_release_identifier():
+    track = jspf.build_track(
+        _track({"release_identifier": "https://musicbrainz.org/release/rel-9"})
+    )
+
+    assert track.album.id == "rel-9"
+    assert track.album.external_uri == "https://musicbrainz.org/release/rel-9"
+    assert [image.width for image in track.album.images] == [250, 500, 1200]
+    assert track.album.images[0].url == (
+        "https://coverartarchive.org/release/rel-9/front-250.jpg"
+    )
+
+
+def test_release_identifier_accepts_a_list_and_loses_to_release_mbid():
+    preferred = jspf.build_track(
+        _track(
+            {
+                "release_mbid": "rel-1",
+                "release_identifier": ["https://musicbrainz.org/release/rel-9"],
+            }
+        )
+    )
+    assert preferred.album.id == "rel-1"
+
+    listed = jspf.build_track(
+        _track({"release_identifier": ["https://musicbrainz.org/release/rel-9"]})
+    )
+    assert listed.album.id == "rel-9"
+
+
 def test_duration_falls_back_to_the_top_level_fields():
     assert jspf.extract_duration_ms({"duration": "1000"}) == 1000
     assert jspf.extract_duration_ms({"length": "2000"}) == 2000

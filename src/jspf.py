@@ -65,26 +65,44 @@ def extract_artists(track: Dict[str, Any]) -> List[Artist]:
     return artists
 
 
+def _first_mbid(value: Any) -> str:
+    """Extract an MBID from a JSPF identifier value.
+
+    ListenBrainz sends identifiers as a bare MBID or as a MusicBrainz URL, occasionally
+    wrapped in a list; a missing, ``"null"`` or empty entry yields ``""``.
+    """
+    if value is None:
+        return ""
+    if isinstance(value, list):
+        for entry in value:
+            mbid = _first_mbid(entry)
+            if mbid:
+                return mbid
+        return ""
+    text = str(value).strip()
+    if not text or text == "null":
+        return ""
+    return text.rstrip("/").rsplit("/", 1)[-1]
+
+
 def extract_album_mbid(track: Dict[str, Any]) -> str:
     extension = _extension(track)
     if not extension:
         return ""
-    direct_group = extension.get("release_group_mbid")
+    direct_group = _first_mbid(extension.get("release_group_mbid"))
     if direct_group:
-        value = str(direct_group)
-        if value != "null":
-            return f"rg:{value}"
+        return f"rg:{direct_group}"
     additional = extension.get("additional_metadata")
-    if isinstance(additional, dict) and additional.get("caa_release_mbid"):
-        value = str(additional["caa_release_mbid"])
-        if value != "null":
-            return value
-    release = extension.get("release_mbid")
+    if isinstance(additional, dict):
+        caa_mbid = _first_mbid(additional.get("caa_release_mbid"))
+        if caa_mbid:
+            return caa_mbid
+    release = _first_mbid(extension.get("release_mbid"))
     if release:
-        value = str(release)
-        if value != "null":
-            return value
-    return ""
+        return release
+    # ListenBrainz radio (`lb-radio`) sends the release only as a URI here, and it is the
+    # sole album reference those entries carry — hence the sole source of their cover art.
+    return _first_mbid(extension.get("release_identifier"))
 
 
 def _cover_images(endpoint: str, mbid: str) -> List[Image]:

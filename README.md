@@ -86,7 +86,11 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
 - Radios — `track.radio` and the synthetic `radio:artist:*` / `radio:tag:*` playlist ids
   (the Home **Mood Playlists**) — are **authenticated**: ListenBrainz `lb-radio` requires
   the token. Signed out, the plugin raises `auth_required` before any request, so the host
-  shows the sign-in invitation instead of a raw 401.
+  shows the sign-in invitation instead of a raw 401. Their tracks are JSPF entries that
+  reference the album only through `release_identifier` (a MusicBrainz release URL), which
+  the parser reads, so covers come from the Cover Art Archive (about two thirds of
+  `lb-radio` releases have one). The radio playlist itself carries no artwork (`images`
+  empty) — a radio has none of its own; the host may build a mosaic from the tracks.
 - `search.playlists` has no public provider to call: ListenBrainz exposes no playlist text
   search. It filters the **user's saved playlists** locally, case insensitively, over both
   `name` and `description`, then paginates the filtered list (`total` is the filtered
