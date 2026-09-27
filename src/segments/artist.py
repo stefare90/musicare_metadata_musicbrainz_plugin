@@ -1,9 +1,11 @@
 """``IArtist``: profile, discography, top tracks and related artists.
 
-Top tracks are assembled from the top releases' embedded recordings, deduplicated by
-title and ranked by their MusicBrainz rating. Related artists come from the ListenBrainz
-Labs similarity endpoint; resolving each one costs a MusicBrainz lookup, so the loop is
-bounded by a time budget and returns a partial page rather than stalling the caller.
+Top tracks come from ListenBrainz, ranked by real listen count; the endpoint returns the
+whole ranking in one call, so the plugin keeps the first ``_POPULAR_MAX`` per artist in a
+small in-memory buffer and serves the contract's pagination from it. Related artists come
+from the ListenBrainz Labs similarity endpoint; resolving each one costs a MusicBrainz
+lookup, so the loop is bounded by a time budget and returns a partial page rather than
+stalling the caller.
 """
 
 import time
@@ -20,7 +22,12 @@ from musicare_metadata_plugin_sdk import (
 
 from ..http import HttpClient
 from ..images.wikidata import WikidataArtistImages
-from ..mapping import build_album_from_release_group, build_artist, build_track
+from ..listenbrainz import ListenBrainz
+from ..mapping import (
+    build_album_from_release_group,
+    build_artist,
+    build_popularity_track,
+)
 from ..providers import LISTENBRAINZ_LABS, MUSICBRAINZ_API
 
 # ListenBrainz Labs similarity algorithm, ported verbatim from the old plugin.
@@ -34,16 +41,35 @@ _LABS_SKIP = 30
 # Similar artists resolve one MusicBrainz lookup per item; cap that fan-out.
 _RELATED_BUDGET_SECONDS = 15.0
 
+# "Popular tracks" is the top of the ranking, not the artist's whole catalogue.
+_POPULAR_MAX = 50
+# Artists whose (already capped) ranking is kept to serve pagination without refetching.
+_POPULAR_BUFFERED_ARTISTS = 8
 
-def _rating_average(recording: Dict[str, Any]) -> float:
-    rating = recording.get("rating")
-    if not isinstance(rating, dict):
-        return 0.0
-    votes = rating.get("votes-count")
-    value = rating.get("value")
-    votes = votes if isinstance(votes, (int, float)) else 0.0
-    value = value if isinstance(value, (int, float)) else 0.0
-    return value / votes if votes > 0 else 0.0
+
+def _top_recordings(entries: List[Any]) -> List[Dict[str, Any]]:
+    """Deduplicate by recording MBID, rank by listen count and keep the top ``_POPULAR_MAX``.
+
+    ListenBrainz sends the rows already sorted, but it also contains duplicate rows for the
+    same recording (some carrying a bogus count of 1); ranking explicitly keeps the best one
+    and makes the result stable via the MBID tie-break.
+    """
+    best: Dict[str, Dict[str, Any]] = {}
+    for entry in entries:
+        if not isinstance(entry, dict):
+            continue
+        mbid = entry.get("recording_mbid")
+        if not mbid:
+            continue
+        count = entry.get("total_listen_count")
+        count = count if isinstance(count, int) else 0
+        current = best.get(str(mbid))
+        if current is None or count > current["total_listen_count"]:
+            best[str(mbid)] = dict(entry, total_listen_count=count)
+    ranked = sorted(
+        best.items(), key=lambda item: (-item[1]["total_listen_count"], item[0])
+    )
+    return [entry for _, entry in ranked[:_POPULAR_MAX]]
 
 
 class MusicBrainzArtist(IArtist):
@@ -51,11 +77,15 @@ class MusicBrainzArtist(IArtist):
         self,
         client: HttpClient,
         images: WikidataArtistImages,
+        lb: ListenBrainz,
         user: Optional[Any] = None,
     ) -> None:
         self._client = client
         self._images = images
+        self._lb = lb
         self._user = user
+        self._popular: Dict[str, List[Track]] = {}
+        self._popular_order: List[str] = []
 
     def _fetch_artist(self, mbid: str) -> Dict[str, Any]:
         return self._client.get_json(
@@ -94,55 +124,28 @@ class MusicBrainzArtist(IArtist):
         return PaginatedResult(items=items, total=total, offset=offset, limit=limit)
 
     def top_tracks(self, id: str, offset: int = 0, limit: int = 20) -> PaginatedResult[Track]:
-        data = self._client.get_json(
-            f"{MUSICBRAINZ_API}release",
-            params={
-                "fmt": "json",
-                "artist": id,
-                "limit": 5,
-                "offset": 0,
-                "inc": "artist-credits+recordings+ratings+isrcs+release-groups",
-            },
-        )
-        releases = data.get("releases") if isinstance(data, dict) else None
-        if not isinstance(releases, list):
-            return PaginatedResult(items=[], total=0, offset=offset, limit=limit)
-
-        recordings: List[Dict[str, Any]] = []
-        for release in releases:
-            if not isinstance(release, dict):
-                continue
-            media = release.get("media")
-            if not isinstance(media, list):
-                continue
-            # The album attached to each recording must not carry the whole track list.
-            release_reference = dict(release, media=None)
-            for medium in media:
-                if not isinstance(medium, dict):
-                    continue
-                for track in medium.get("tracks") or []:
-                    if not isinstance(track, dict):
-                        continue
-                    recording = track.get("recording")
-                    if isinstance(recording, dict):
-                        recordings.append(dict(recording, releases=[release_reference]))
-
-        unique: List[Dict[str, Any]] = []
-        seen = set()
-        for recording in recordings:
-            title = recording.get("title")
-            if isinstance(title, str) and title not in seen:
-                seen.add(title)
-                unique.append(recording)
-        unique.sort(key=_rating_average, reverse=True)
-
-        items = [build_track(recording) for recording in unique]
+        tracks = self._popular_tracks(id)
         return PaginatedResult(
-            items=items[offset : offset + limit],
-            total=len(items),
+            items=tracks[offset : offset + limit],
+            total=len(tracks),
             offset=offset,
             limit=limit,
         )
+
+    def _popular_tracks(self, id: str) -> List[Track]:
+        cached = self._popular.get(id)
+        if cached is not None:
+            return cached
+        # No token raises `AuthRequiredError` here: the ranking only exists on ListenBrainz.
+        data = self._lb.top_recordings_for_artist(id)
+        if not isinstance(data, list):
+            raise TransportError("ListenBrainz returned an unexpected popularity response")
+        tracks = [build_popularity_track(entry) for entry in _top_recordings(data)]
+        self._popular[id] = tracks
+        self._popular_order.append(id)
+        while len(self._popular_order) > _POPULAR_BUFFERED_ARTISTS:
+            self._popular.pop(self._popular_order.pop(0), None)
+        return tracks
 
     def related(self, id: str, offset: int = 0, limit: int = 20) -> PaginatedResult[Artist]:
         algorithm = (

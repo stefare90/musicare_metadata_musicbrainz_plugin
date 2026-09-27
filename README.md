@@ -5,9 +5,10 @@ Official MusicAre **metadata** plugin, written in **100% Pure-Python**. It imple
 (`musicare_plugin_sdk`, `pluginSdkVersion 4.1.0`). It replaces the archived Dart bytecode
 plugin (`gyawun_metadata_plugin`), whose behaviour it preserves.
 
-Providers: **MusicBrainz** (search, releases, release groups, recordings, ratings),
-**ListenBrainz** (token, liked tracks, user playlists, radios, algorithmic playlists),
-**Wikidata** (artist images, via the MediaWiki API) and **Wikimedia Commons** (image URLs).
+Providers: **MusicBrainz** (search, releases, release groups, recordings),
+**ListenBrainz** (token, liked tracks, user playlists, radios, algorithmic playlists,
+artist popularity), **Wikidata** (artist images, via the MediaWiki API) and
+**Wikimedia Commons** (image URLs).
 
 ## Why it exists
 
@@ -74,9 +75,19 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   release-scoped.
 - A `Track` always carries a complete `Album` and complete `Artist`s, as the contract
   requires; when MusicBrainz returns a recording without a release, the album comes from
-  the surrounding context (album page, playlist entry, rating list).
-- `artist.top_tracks` is assembled from the top releases, deduplicated by title and ranked
-  by MusicBrainz rating, then paginated locally.
+  the surrounding context (album page, playlist entry).
+- `artist.top_tracks` ("Popular tracks") is the artist's ranking by **real listen count**
+  from ListenBrainz `popularity/top-recordings-for-artist`, which requires the token. Rows
+  are deduplicated by recording MBID (ListenBrainz returns duplicate rows — 37 on
+  Radiohead, some with a bogus count of 1), ranked by `total_listen_count` with the MBID
+  as a stable tie-break, and capped at **50**: the section is the top of the ranking, not
+  the whole catalogue. Covers come straight from the entry's
+  `caa_release_mbid`/`release_mbid`, so no extra lookup is needed. The endpoint returns
+  the whole list and ignores `offset`/`limit`, so the capped ranking is buffered in memory
+  per artist (bounded to the last 8) and the contract's pagination is served from it.
+  Signed out it raises `auth_required` (the ranking only exists with a token); a reachable
+  service that knows no listens answers `[]`, a legitimate empty. An unreachable service
+  is a retryable error.
 - `artist.related` ("Fans Also Like") uses the ListenBrainz Labs similarity endpoint; each
   suggestion needs a MusicBrainz lookup, so the fan-out is capped by a 15 s budget and a
   partial page is returned rather than stalling the caller. It is a **visible section**, so

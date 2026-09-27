@@ -205,6 +205,13 @@ class ListenBrainz:
         playlists = data.get("playlists") if isinstance(data, dict) else None
         return playlists if isinstance(playlists, list) else []
 
+    def top_recordings_for_artist(self, artist_mbid: str) -> Any:
+        """Recordings of an artist ordered by real listen count (token required)."""
+        return self._client.get_json(
+            f"{LISTENBRAINZ_API}popularity/top-recordings-for-artist/{artist_mbid}",
+            headers=self._headers(required=True),
+        )
+
     def radio(self, prompt: str) -> Dict[str, Any]:
         data = self._client.get_json(
             f"{LISTENBRAINZ_API}explore/lb-radio",

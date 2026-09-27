@@ -158,6 +158,71 @@ def build_track(recording: Dict[str, Any]) -> Track:
     )
 
 
+def _popularity_artists(entry: Dict[str, Any]) -> List[Artist]:
+    """Build the artist list of a ListenBrainz popularity entry."""
+    artists: List[Artist] = []
+    entries = entry.get("artists")
+    if isinstance(entries, list):
+        for item in entries:
+            if not isinstance(item, dict):
+                continue
+            mbid = item.get("artist_mbid")
+            if not mbid:
+                continue
+            artists.append(
+                Artist(
+                    id=str(mbid),
+                    name=str(item.get("artist_credit_name") or entry.get("artist_name") or ""),
+                    external_uri=external_uri("artist", str(mbid)),
+                )
+            )
+    if artists:
+        return artists
+    names = entry.get("artist_mbids")
+    fallback_name = str(entry.get("artist_name") or "")
+    if isinstance(names, list):
+        return [
+            Artist(
+                id=str(mbid),
+                name=fallback_name,
+                external_uri=external_uri("artist", str(mbid)),
+            )
+            for mbid in names
+            if mbid
+        ]
+    return []
+
+
+def build_popularity_track(entry: Dict[str, Any]) -> Track:
+    """Build a track from a ListenBrainz ``top-recordings-for-artist`` entry.
+
+    The entry already carries everything the contract needs (name, length, artists and the
+    Cover Art Archive release), so no MusicBrainz or Wikidata lookup is required.
+    """
+    recording_id = str(entry.get("recording_mbid") or "")
+    artists = _popularity_artists(entry)
+    release_mbid = str(entry.get("release_mbid") or "")
+    cover_mbid = str(entry.get("caa_release_mbid") or release_mbid)
+    album_id = release_mbid or cover_mbid
+    return Track(
+        id=recording_id,
+        name=str(entry.get("recording_name") or ""),
+        external_uri=external_uri("recording", recording_id),
+        artists=artists,
+        album=Album(
+            id=album_id,
+            name=str(entry.get("release_name") or ""),
+            artists=artists,
+            images=_cover_images("release", cover_mbid, COVER_SIZES) if cover_mbid else [],
+            release_date="",
+            external_uri=external_uri("release", album_id) if album_id else "",
+            total_tracks=0,
+            album_type=AlbumType.ALBUM,
+        ),
+        duration_ms=entry.get("length") if isinstance(entry.get("length"), int) else 0,
+    )
+
+
 def build_artist(artist: Dict[str, Any], images: Optional[List[Image]] = None) -> Artist:
     """Build an artist from a MusicBrainz *artist* payload."""
     mbid = str(artist.get("id") or "")

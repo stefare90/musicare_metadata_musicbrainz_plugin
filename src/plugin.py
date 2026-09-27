@@ -34,7 +34,7 @@ from .segments.user import MusicBrainzUser
 
 PLUGIN_ID = "org.musicare.metadata.musicbrainz"
 PLUGIN_NAME = "MusicBrainz & ListenBrainz"
-PLUGIN_VERSION = "1.2.3"
+PLUGIN_VERSION = "1.2.4"
 
 
 class MusicBrainzPlugin(BaseMetadataPlugin):
@@ -50,7 +50,7 @@ class MusicBrainzPlugin(BaseMetadataPlugin):
         self._search = MusicBrainzSearch(client, images, self._user)
         self._auth = MusicBrainzAuth(listenbrainz, credentials)
         self._album = MusicBrainzAlbum(client, self._user)
-        self._artist = MusicBrainzArtist(client, images, self._user)
+        self._artist = MusicBrainzArtist(client, images, listenbrainz, self._user)
         self._track = MusicBrainzTrack(listenbrainz, client, self._user)
         self._playlist = MusicBrainzPlaylist(listenbrainz, client, self._user)
         self._browse = MusicBrainzBrowse(listenbrainz, self._user)

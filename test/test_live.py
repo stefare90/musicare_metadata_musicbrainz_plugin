@@ -13,6 +13,7 @@ import pytest
 from musicare_metadata_plugin_sdk import (
     Authenticated,
     AuthContext,
+    AuthRequiredError,
     RateLimitedError,
     SearchCategory,
 )
@@ -24,6 +25,10 @@ from src.main import get_plugin
 pytestmark = pytest.mark.live
 
 RADIOHEAD_MBID = "a74b1b7f-71a5-4011-9441-d0b5e4122711"
+# Wolfgang Muthspiel: a niche artist, enough listeners to have a ranking.
+NICHE_ARTIST_MBID = "955ff0c2-502a-4aea-92fd-1810fba171c2"
+# Arianna Neikrug: no ListenBrainz listens at the time of writing.
+NO_LISTENS_ARTIST_MBID = "0b1b6c28-d84a-43e9-a326-3b87bff7b656"
 
 
 def _retry(call, attempts: int = 3):
@@ -140,3 +145,54 @@ def _radio_playlist_round_trip(tmp_path):
     page = plugin.playlist.tracks("radio:tag:chill", limit=5)
 
     assert page.items
+
+
+def test_top_tracks_require_a_token():
+    plugin = get_plugin()
+
+    with pytest.raises(AuthRequiredError):
+        plugin.artist.top_tracks(RADIOHEAD_MBID)
+
+
+def test_top_tracks_are_ranked_by_real_listen_count(tmp_path):
+    _retry(lambda: _top_tracks_round_trip(tmp_path))
+
+
+def _top_tracks_round_trip(tmp_path):
+    plugin = _authenticated_plugin(tmp_path)
+
+    page = plugin.artist.top_tracks(RADIOHEAD_MBID, offset=0, limit=50)
+
+    assert page.total == 50
+    assert len(page.items) == 50
+    ids = [track.id for track in page.items]
+    assert len(ids) == len(set(ids))
+    assert page.items[0].name == "Karma Police"
+    assert page.items[0].album.images
+
+
+def test_top_tracks_are_populated_for_a_niche_artist(tmp_path):
+    _retry(lambda: _niche_artist_round_trip(tmp_path))
+
+
+def _niche_artist_round_trip(tmp_path):
+    plugin = _authenticated_plugin(tmp_path)
+
+    page = plugin.artist.top_tracks(NICHE_ARTIST_MBID, limit=5)
+
+    assert page.items
+    assert page.total <= 50
+    assert page.items[0].name == "Maya"
+
+
+def test_top_tracks_are_empty_when_the_artist_has_no_listens(tmp_path):
+    _retry(lambda: _no_listens_round_trip(tmp_path))
+
+
+def _no_listens_round_trip(tmp_path):
+    plugin = _authenticated_plugin(tmp_path)
+
+    page = plugin.artist.top_tracks(NO_LISTENS_ARTIST_MBID, limit=5)
+
+    assert page.items == []
+    assert page.total == 0
