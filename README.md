@@ -111,6 +111,14 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   shows its fallback icon. Search follows the **uniform error policy**: a failed
   ListenBrainz call is a retryable error that fails `all()` too, exactly like a failed
   MusicBrainz call on the other categories.
+- The **saved library** is the pair of private ListenBrainz playlists (`__GYAWUN_ALBUMS__`,
+  `__GYAWUN_ARTISTS__`) described under *Authentication*, and the plugin treats them as the
+  saved set: `save_album`/`save_artist` are **idempotent** (saving an id already in the
+  playlist is a no-op, so a repeated tap cannot append a second row), and `unsave_*` of an
+  id that is not there is a **silent no-op**. Reads return the playlist as it is: rows a
+  pre-idempotent library already duplicated are **not** collapsed and are a manual cleanup,
+  not something the read path hides. This is deliberate — the write side keeps the
+  invariant, the read side does not paper over rows that should not exist.
 
 ## Authentication
 
@@ -130,7 +138,10 @@ The flow is a small state machine the host drives over the `auth.*` calls:
   uses (the runtime passes an `AuthContext` only to `IAuth`).
 
 The token never reaches the host: the user types it into the host's form and it stays in
-the plugin's own data directory.
+the plugin's own data directory. The account **name is cached, but the cache is keyed by
+the token**: logging out and in as another user invalidates it automatically, so `me()`
+and the `saved_*` calls cannot serve the previous account, while an unchanged token keeps
+serving the cache with no `validate-token` call per request.
 
 **Saved albums and artists** have no first-class MusicBrainz equivalent, so the plugin
 maintains two private ListenBrainz playlists (`__GYAWUN_ALBUMS__`,
