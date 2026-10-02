@@ -152,6 +152,8 @@ def test_update_playlist_merges_with_the_current_document(tmp_path):
 
 def test_add_tracks_builds_jspf_entries_with_a_position(tmp_path):
     def handler(url, params):
+        if "playlist/pl-1" in url:
+            return {"playlist": {"track": []}}
         assert url.endswith("recording/rec-1")
         return {"title": "Song", "artist-credit": [{"artist": {"id": "a1", "name": "A"}}]}
 
@@ -163,6 +165,59 @@ def test_add_tracks_builds_jspf_entries_with_a_position(tmp_path):
     playlist, _, _ = _playlist(tmp_path, handler, post_handler)
 
     playlist.add_tracks("pl-1", ["rec-1"], position=3)
+
+
+def test_add_tracks_skips_tracks_already_in_the_playlist(tmp_path):
+    def handler(url, params):
+        assert "playlist/pl-1" in url
+        return {
+            "playlist": {"track": [{"identifier": ["https://musicbrainz.org/recording/t1"]}]}
+        }
+
+    playlist, client, _ = _playlist(tmp_path, handler, lambda url, body: {})
+
+    playlist.add_tracks("pl-1", ["t1"])
+
+    assert [body for kind, url, body in client.calls if kind == "post"] == []
+
+
+def test_add_tracks_adds_only_the_new_tracks_and_keeps_the_position(tmp_path):
+    def handler(url, params):
+        if "playlist/pl-1" in url:
+            return {
+                "playlist": {
+                    "track": [{"identifier": ["https://musicbrainz.org/recording/t1"]}]
+                }
+            }
+        assert "recording/t3" in url
+        return {"title": "Three", "artist-credit": [{"artist": {"id": "a1", "name": "A"}}]}
+
+    playlist, client, _ = _playlist(tmp_path, handler, lambda url, body: {})
+
+    playlist.add_tracks("pl-1", ["t1", "t3"], position=2)
+
+    posts = [body for kind, url, body in client.calls if kind == "post"]
+    assert len(posts) == 1
+    assert posts[0]["index"] == 2
+    assert [track["identifier"] for track in posts[0]["playlist"]["track"]] == [
+        "https://musicbrainz.org/recording/t3"
+    ]
+
+
+def test_add_tracks_deduplicates_within_the_batch(tmp_path):
+    def handler(url, params):
+        if "playlist/pl-1" in url:
+            return {"playlist": {"track": []}}
+        assert "recording/t9" in url
+        return {"title": "Nine", "artist-credit": [{"artist": {"id": "a1", "name": "A"}}]}
+
+    playlist, client, _ = _playlist(tmp_path, handler, lambda url, body: {})
+
+    playlist.add_tracks("pl-1", ["t9", "t9"])
+
+    posts = [body for kind, url, body in client.calls if kind == "post"]
+    assert len(posts) == 1
+    assert len(posts[0]["playlist"]["track"]) == 1
 
 
 def test_remove_tracks_deletes_the_matching_indices_in_reverse(tmp_path):

@@ -134,7 +134,24 @@ class MusicBrainzPlaylist(IPlaylist):
     def add_tracks(
         self, playlist_id: str, track_ids: List[str], position: Optional[int] = None
     ) -> None:
-        jspf_tracks = [self._jspf_track(track_id) for track_id in track_ids]
+        """Add the tracks that are not in the playlist yet, in the order given.
+
+        A duplicate id is silently skipped: the contract's ``add_tracks`` returns nothing,
+        so the plugin guarantees idempotence instead of asking the host to check first
+        (adding a track that is already there used to append a second row). The requested
+        ``position`` applies to the new tracks; if every id is already present no request
+        is made.
+        """
+        present = self._track_ids(playlist_id)
+        new_ids: List[str] = []
+        for track_id in track_ids:
+            if track_id in present:
+                continue
+            present.add(track_id)
+            new_ids.append(track_id)
+        if not new_ids:
+            return
+        jspf_tracks = [self._jspf_track(track_id) for track_id in new_ids]
         self._lb.add_items(playlist_id, [track for track in jspf_tracks if track], position)
 
     def remove_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
@@ -201,6 +218,18 @@ class MusicBrainzPlaylist(IPlaylist):
         return PaginatedResult(items=items, total=total, offset=offset, limit=limit)
 
     # --- helpers -------------------------------------------------------------------
+
+    def _track_ids(self, playlist_id: str) -> set:
+        raw = self._lb.playlist(playlist_id)
+        entries = raw.get("track")
+        if not isinstance(entries, list):
+            return set()
+        ids = set()
+        for entry in entries:
+            identifier = jspf.track_identifier(entry) if isinstance(entry, dict) else None
+            if identifier:
+                ids.add(identifier.rsplit("/", 1)[-1])
+        return ids
 
     def _jspf_track(self, track_id: str) -> Dict[str, Any]:
         data = self._client.get_json(
