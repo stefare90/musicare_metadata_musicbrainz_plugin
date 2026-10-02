@@ -76,6 +76,17 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
 - A `Track` always carries a complete `Album` and complete `Artist`s, as the contract
   requires; when MusicBrainz returns a recording without a release, the album comes from
   the surrounding context (album page, playlist entry).
+- When a recording exists in several publications, the album is chosen **deterministically**
+  instead of by MusicBrainz's response order: releases are sorted by ascending date (a
+  missing month/day counts as the end of its period, the way MusicBrainz orders them),
+  compilations/live/remix editions are deprioritised and official prints preferred. This
+  matters because the bulk `recording?query=…` search used by `saved_tracks` returns
+  `releases` in a **different** order than the direct lookup, so taking `releases[0]`
+  could land the liked-track cover on a "Summer Hits" compilation. A release hint carried
+  by the entry wins over the sort (a liked feedback's `track_metadata.mbid_mapping.
+  caa_release_mbid`, when ListenBrainz stored one; the app's own feedback usually leaves
+  `track_metadata` empty). `saved_albums` is unaffected: it resolves the saved
+  release-group id directly.
 - `artist.top_tracks` ("Popular tracks") is the artist's ranking by **real listen count**
   from ListenBrainz `popularity/top-recordings-for-artist`, which requires the token. Rows
   are deduplicated by recording MBID (ListenBrainz returns duplicate rows — 37 on
@@ -119,6 +130,12 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   pre-idempotent library already duplicated are **not** collapsed and are a manual cleanup,
   not something the read path hides. This is deliberate — the write side keeps the
   invariant, the read side does not paper over rows that should not exist.
+- `playlist.add_tracks` is **idempotent** the same way: ids already in the playlist are
+  silently skipped (duplicates within a single call collapse too), the new tracks keep
+  their order and the requested `position`, and if every id is already present no request
+  is made. The contract's `add_tracks` returns nothing, so it is the host that tells the
+  user the track was already there. The trade-off is that a deliberate repetition of the
+  same recording in the same playlist cannot be expressed through this API.
 
 ## Authentication
 
