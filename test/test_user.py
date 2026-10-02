@@ -173,6 +173,8 @@ def test_save_album_adds_the_release_group_to_the_hidden_playlist(tmp_path):
             return {"user_name": "tester"}
         if "user/tester/playlists" in url:
             return {"playlists": []}
+        if "playlist/alb" in url:
+            return {"playlist": {"track": []}}
         if "release-group/g1" in url:
             return release_group_payload(group_id="g1", artist_name="Radiohead")
         raise AssertionError(url)
@@ -238,3 +240,133 @@ def test_save_and_unsave_playlist_copy_then_delete(tmp_path):
     urls = [url for kind, url, _ in client.calls if kind == "post"]
     assert urls[-2].endswith("playlist/p1/copy")
     assert urls[-1].endswith("playlist/p1/delete")
+
+
+def _albums_library(handler_extra=None):
+    """Handler for the albums playlist with rows ``g1`` and ``g2``."""
+
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "__GYAWUN_ALBUMS__",
+                            "identifier": "https://listenbrainz.org/playlist/alb",
+                        }
+                    }
+                ]
+            }
+        if "playlist/alb" in url:
+            return {
+                "playlist": {
+                    "track": [
+                        {"identifier": ["https://musicbrainz.org/recording/g1"]},
+                        {"identifier": ["https://musicbrainz.org/recording/g2"]},
+                    ]
+                }
+            }
+        if url.startswith("https://musicbrainz.org/ws/2/release-group/"):
+            return release_group_payload(group_id=url.rsplit("/", 1)[-1])
+        raise AssertionError(url)
+
+    return handler
+
+
+def test_save_album_is_idempotent_when_the_id_is_already_saved(tmp_path):
+    user, client, _ = _user(tmp_path, _albums_library(), lambda url, body: {})
+
+    user.save_album("rg:g1")
+
+    assert _posts(client, "item/add") == []
+    assert not any("release-group/g1" in url for kind, url, _ in client.calls)
+
+
+def test_save_album_still_adds_an_unsaved_id(tmp_path):
+    user, client, _ = _user(tmp_path, _albums_library(), lambda url, body: {})
+
+    user.save_album("rg:g3")
+
+    track = _posts(client, "item/add")[0]["playlist"]["track"][0]
+    assert track["identifier"] == "https://musicbrainz.org/recording/g3"
+
+
+def test_save_artist_is_idempotent_when_the_id_is_already_saved(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "__GYAWUN_ARTISTS__",
+                            "identifier": "https://listenbrainz.org/playlist/art",
+                        }
+                    }
+                ]
+            }
+        if "playlist/art" in url:
+            return {
+                "playlist": {"track": [{"identifier": ["https://musicbrainz.org/recording/a1"]}]}
+            }
+        raise AssertionError(url)
+
+    user, client, _ = _user(tmp_path, handler, lambda url, body: {})
+
+    user.save_artist("a1")
+
+    assert _posts(client, "item/add") == []
+    assert not any("artist/a1" in url for kind, url, _ in client.calls)
+
+
+def test_unsave_of_an_absent_id_is_silent(tmp_path):
+    user, client, _ = _user(tmp_path, _albums_library(), lambda url, body: {})
+
+    user.unsave_album("rg:absent")
+
+    assert _posts(client, "item/delete") == []
+
+
+def test_saved_albums_does_not_collapse_legacy_duplicate_rows(tmp_path):
+    """The write side keeps the playlist unique; reads return it as-is, on purpose.
+
+    A library saved before the idempotent ``save_*`` may still hold duplicate rows:
+    those are a manual cleanup, not something the read path hides.
+    """
+
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "__GYAWUN_ALBUMS__",
+                            "identifier": "https://listenbrainz.org/playlist/alb",
+                        }
+                    }
+                ]
+            }
+        if "playlist/alb" in url:
+            return {
+                "playlist": {
+                    "track": [
+                        {"identifier": ["https://musicbrainz.org/recording/g1"]},
+                        {"identifier": ["https://musicbrainz.org/recording/g1"]},
+                    ]
+                }
+            }
+        if url.startswith("https://musicbrainz.org/ws/2/release-group/"):
+            return release_group_payload(group_id="g1")
+        raise AssertionError(url)
+
+    user, _, _ = _user(tmp_path, handler, lambda url, body: {})
+
+    page = user.saved_albums()
+
+    assert page.total == 2
+    assert [album.id for album in page.items] == ["rg:g1", "rg:g1"]

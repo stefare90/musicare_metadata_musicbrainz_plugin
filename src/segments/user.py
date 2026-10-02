@@ -201,6 +201,10 @@ class MusicBrainzUser(IUser):
         self._lb.require_auth()
         clean_id = id[3:] if id.startswith("rg:") else id
         playlist_mbid = self._lb.get_or_create_playlist(SAVED_ALBUMS_PLAYLIST)
+        # Saving again must not append a second row to the hidden playlist: it *is* the
+        # saved set. (Reads do not de-duplicate, so a duplicate here would stay visible.)
+        if clean_id in self._playlist_ids(playlist_mbid):
+            return
         data = self._client.get_json(
             f"{MUSICBRAINZ_API}release-group/{clean_id}",
             params={"fmt": "json", "inc": "artist-credits"},
@@ -228,6 +232,8 @@ class MusicBrainzUser(IUser):
     def save_artist(self, id: str) -> None:
         self._lb.require_auth()
         playlist_mbid = self._lb.get_or_create_playlist(SAVED_ARTISTS_PLAYLIST)
+        if id in self._playlist_ids(playlist_mbid):
+            return
         data = self._client.get_json(f"{MUSICBRAINZ_API}artist/{id}", params={"fmt": "json"})
         title = str(data.get("name") or "") if isinstance(data, dict) else ""
         self._lb.add_items(
@@ -271,6 +277,14 @@ class MusicBrainzUser(IUser):
     def _playlist_tracks(self, mbid: str) -> List[Any]:
         tracks = self._lb.playlist(mbid).get("track")
         return tracks if isinstance(tracks, list) else []
+
+    def _playlist_ids(self, mbid: str) -> List[str]:
+        return [
+            entity_id
+            for track in self._playlist_tracks(mbid)
+            for entity_id in [self._track_mbid(track)]
+            if entity_id
+        ]
 
     @staticmethod
     def _track_mbid(track: Any) -> str:
