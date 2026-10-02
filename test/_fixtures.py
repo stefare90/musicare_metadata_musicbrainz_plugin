@@ -16,6 +16,8 @@ def release_payload(
     title: str = "OK Computer",
     date: str = "1997-05-28",
     primary_type: str = "Album",
+    secondary_types: Optional[List[str]] = None,
+    status: Optional[str] = "Official",
     front: bool = False,
     tracks: int = 12,
     artist_mbid: str = ARTIST_MBID,
@@ -29,8 +31,13 @@ def release_payload(
         "artist-credit": [credit(artist_mbid, artist_name)],
         "media": [{"track-count": tracks}, {"track-count": 1}],
     }
+    if status is not None:
+        payload["status"] = status
     if with_release_group:
-        payload["release-group"] = {"id": group_id, "primary-type": primary_type}
+        group: Dict[str, Any] = {"id": group_id, "primary-type": primary_type}
+        if secondary_types is not None:
+            group["secondary-types"] = secondary_types
+        payload["release-group"] = group
     if front:
         payload["cover-art-archive"] = {"front": True}
     return payload

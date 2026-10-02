@@ -68,6 +68,77 @@ def _tag_names(tags: Any) -> List[str]:
     return _genres(tags) or []
 
 
+#: Release-group secondary types that identify a reissue, a compilation or another
+#: non-studio edition. They rank a release last, so a recording whose first release is a
+#: "Summer Hits" collection still gets the cover of its own publication.
+_NON_STUDIO_SECONDARY_TYPES = frozenset(
+    {
+        "compilation",
+        "live",
+        "dj-mix",
+        "remix",
+        "interview",
+        "mixtape/street",
+        "demo",
+        "audiobook",
+        "spokenword",
+    }
+)
+
+
+def _release_date_key(value: Any) -> tuple:
+    """Sort key for a MusicBrainz partial date (``YYYY``, ``YYYY-MM``, ``YYYY-MM-DD``).
+
+    A missing month or day counts as the end of its period, because that is where
+    MusicBrainz places a year-only release relative to the dated ones; treating it as
+    January would let an undated edition jump ahead of the actual first release.
+    """
+    parts = str(value or "").strip().split("-")
+    try:
+        year = int(parts[0])
+    except (ValueError, IndexError):
+        return (9999, 12, 31)
+    month = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 12
+    day = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 31
+    return (year, month, day)
+
+
+def _release_rank(release: Dict[str, Any]) -> tuple:
+    group = release.get("release-group")
+    group = group if isinstance(group, dict) else {}
+    secondary = group.get("secondary-types")
+    secondary = secondary if isinstance(secondary, list) else []
+    non_studio = any(str(item).lower() in _NON_STUDIO_SECONDARY_TYPES for item in secondary)
+    official = 0 if str(release.get("status") or "") == "Official" else 1
+    return (
+        1 if non_studio else 0,
+        official,
+        _release_date_key(release.get("date")),
+        str(release.get("id") or ""),
+    )
+
+
+def select_release(releases: Any, release_mbid: Optional[str] = None) -> Optional[Dict[str, Any]]:
+    """Pick the publication a recording's album and cover should come from.
+
+    MusicBrainz orders a recording's ``releases`` differently per endpoint (the bulk
+    ``recording?query=…`` search and the direct lookup disagree), so taking ``releases[0]``
+    lands on a compilation as often as on the track's own release. The choice is made
+    deterministic here: an explicit ``release_mbid`` wins when it is in the list, otherwise
+    the earliest release, with non-studio editions ranked last and official prints first.
+    """
+    if not isinstance(releases, list):
+        return None
+    candidates = [release for release in releases if isinstance(release, dict)]
+    if release_mbid:
+        for release in candidates:
+            if str(release.get("id") or "") == release_mbid:
+                return release
+    if not candidates:
+        return None
+    return min(candidates, key=_release_rank)
+
+
 def _cover_images(prefix: str, mbid: str, sizes: Iterable[int]) -> List[Image]:
     return [Image(url=cover_url(prefix, mbid, size), width=size, height=size) for size in sizes]
 
@@ -129,13 +200,18 @@ def build_album_from_release_group(group: Dict[str, Any]) -> Album:
     )
 
 
-def build_track(recording: Dict[str, Any]) -> Track:
-    """Build a track from a MusicBrainz *recording* payload (the old plugin's ``buildTrack``)."""
+def build_track(recording: Dict[str, Any], release_mbid: Optional[str] = None) -> Track:
+    """Build a track from a MusicBrainz *recording* payload (the old plugin's ``buildTrack``).
+
+    ``release_mbid`` narrows the album to one known publication (e.g. the release a saved
+    feedback entry or a listen was recorded against); without it the album is the one
+    :func:`select_release` chooses.
+    """
     recording_id = str(recording.get("id") or "")
     artists = _credits(recording.get("artist-credit"))
-    releases = recording.get("releases")
-    if isinstance(releases, list) and releases and isinstance(releases[0], dict):
-        album = build_album(releases[0])
+    release = select_release(recording.get("releases"), release_mbid)
+    if release is not None:
+        album = build_album(release)
     else:
         album = Album(
             id="",

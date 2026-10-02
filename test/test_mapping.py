@@ -68,7 +68,7 @@ def test_build_album_from_release_group_has_three_cover_sizes():
     assert album.total_tracks == 0
 
 
-def test_build_track_embeds_the_first_release_as_album():
+def test_build_track_embeds_the_selected_release_as_album():
     track = build_track(recording_payload(releases=[release_payload(front=True)]))
 
     assert track.id == "recording-1"
@@ -77,6 +77,78 @@ def test_build_track_embeds_the_first_release_as_album():
     assert track.external_uri == "https://musicbrainz.org/recording/recording-1"
     assert track.album.id == "rg:group-1"
     assert track.artists[0].id == ARTIST_MBID
+
+
+def test_build_track_skips_a_compilation_for_the_studio_release():
+    compilation = release_payload(
+        release_id="comp",
+        group_id="comp-group",
+        title="Summer Hits",
+        date="2017",
+        secondary_types=["Compilation"],
+    )
+    studio = release_payload(
+        release_id="studio",
+        group_id="studio-group",
+        title="Fenomeno",
+        date="2017-04-07",
+    )
+
+    track = build_track(recording_payload(releases=[compilation, studio]))
+
+    assert track.album.id == "rg:studio-group"
+    assert track.album.name == "Fenomeno"
+
+
+def test_build_track_picks_the_earliest_release_date():
+    later = release_payload(
+        release_id="later", group_id="later-group", date="2024-02-06"
+    )
+    earlier = release_payload(
+        release_id="earlier", group_id="earlier-group", date="2017-01-19"
+    )
+
+    track = build_track(recording_payload(releases=[later, earlier]))
+
+    assert track.album.id == "rg:earlier-group"
+
+
+def test_build_track_does_not_let_a_year_only_date_jump_ahead():
+    year_only = release_payload(release_id="year", group_id="year-group", date="2017")
+    dated = release_payload(release_id="dated", group_id="dated-group", date="2017-03-03")
+
+    track = build_track(recording_payload(releases=[year_only, dated]))
+
+    assert track.album.id == "rg:dated-group"
+
+
+def test_build_track_honours_an_explicit_release_hint():
+    playlist_release = release_payload(
+        release_id="saved", group_id="saved-group", title="Saved Edition", date="2019"
+    )
+    studio = release_payload(release_id="studio", group_id="studio-group", date="2017-04-07")
+
+    track = build_track(
+        recording_payload(releases=[studio, playlist_release]), release_mbid="saved"
+    )
+
+    assert track.album.id == "rg:saved-group"
+
+
+def test_build_track_falls_back_when_the_hint_is_not_in_the_releases():
+    studio = release_payload(release_id="studio", group_id="studio-group", date="2017-04-07")
+    compilation = release_payload(
+        release_id="comp",
+        group_id="comp-group",
+        date="2017",
+        secondary_types=["Compilation"],
+    )
+
+    track = build_track(
+        recording_payload(releases=[compilation, studio]), release_mbid="absent"
+    )
+
+    assert track.album.id == "rg:studio-group"
 
 
 def test_build_track_without_releases_has_an_empty_album():

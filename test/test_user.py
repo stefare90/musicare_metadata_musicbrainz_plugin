@@ -8,7 +8,7 @@ from src.credentials import Credentials
 from src.listenbrainz import ListenBrainz
 from src.segments.user import MusicBrainzUser
 
-from ._fixtures import recording_payload, release_group_payload
+from ._fixtures import recording_payload, release_group_payload, release_payload
 from ._stubs import StubClient, StubImages, authenticated_lb
 
 
@@ -51,6 +51,86 @@ def test_saved_tracks_pages_the_feedback_and_resolves_the_page(tmp_path):
     assert [track.id for track in page.items] == ["r1", "r2"]
     query = [params["query"] for kind, url, params in client.calls if url.endswith("/recording")][0]
     assert "rid:r1" in query and "rid:r2" in query and "rid:r3" not in query
+
+
+def test_saved_tracks_prefers_the_release_from_the_feedback_metadata(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "get-feedback" in url:
+            return {
+                "feedback": [
+                    {
+                        "recording_mbid": "r1",
+                        "track_metadata": {
+                            "mbid_mapping": {"caa_release_mbid": "saved"}
+                        },
+                    }
+                ]
+            }
+        if url.endswith("/recording"):
+            return {
+                "recordings": [
+                    recording_payload(
+                        "r1",
+                        releases=[
+                            release_payload(
+                                release_id="studio",
+                                group_id="studio-group",
+                                date="2017-04-07",
+                            ),
+                            release_payload(
+                                release_id="saved",
+                                group_id="saved-group",
+                                date="2019-10-25",
+                            ),
+                        ],
+                    )
+                ]
+            }
+        raise AssertionError(url)
+
+    user, _, _ = _user(tmp_path, handler)
+
+    page = user.saved_tracks()
+
+    assert [track.album.id for track in page.items] == ["rg:saved-group"]
+
+
+def test_saved_tracks_without_feedback_metadata_uses_the_canonical_release(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "get-feedback" in url:
+            return {"feedback": [{"recording_mbid": "r1", "track_metadata": None}]}
+        if url.endswith("/recording"):
+            return {
+                "recordings": [
+                    recording_payload(
+                        "r1",
+                        releases=[
+                            release_payload(
+                                release_id="comp",
+                                group_id="comp-group",
+                                date="2017",
+                                secondary_types=["Compilation"],
+                            ),
+                            release_payload(
+                                release_id="studio",
+                                group_id="studio-group",
+                                date="2017-04-07",
+                            ),
+                        ],
+                    )
+                ]
+            }
+        raise AssertionError(url)
+
+    user, _, _ = _user(tmp_path, handler)
+
+    page = user.saved_tracks()
+
+    assert [track.album.id for track in page.items] == ["rg:studio-group"]
 
 
 def test_saved_tracks_requires_authentication(tmp_path):

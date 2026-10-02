@@ -55,21 +55,29 @@ class MusicBrainzUser(IUser):
         self._lb.require_auth()
         feedback = self._lb.feedback(self._lb.username(), offset + limit)
         page = feedback[offset : offset + limit]
-        mbids = [
-            str(entry["recording_mbid"])
-            for entry in page
-            if isinstance(entry, dict) and entry.get("recording_mbid")
-        ]
+        mbids: List[str] = []
+        hints: Dict[str, str] = {}
+        for entry in page:
+            if not isinstance(entry, dict) or not entry.get("recording_mbid"):
+                continue
+            recording_mbid = str(entry["recording_mbid"])
+            mbids.append(recording_mbid)
+            release = self._feedback_release_mbid(entry)
+            if release:
+                hints[recording_mbid] = release
         return PaginatedResult(
-            items=self._fetch_recordings(mbids),
+            items=self._fetch_recordings(mbids, hints),
             total=len(feedback),
             offset=offset,
             limit=limit,
         )
 
-    def _fetch_recordings(self, mbids: List[str]) -> List[Track]:
+    def _fetch_recordings(
+        self, mbids: List[str], hints: Optional[Dict[str, str]] = None
+    ) -> List[Track]:
         if not mbids:
             return []
+        release_hints = hints or {}
         data = self._client.get_json(
             f"{MUSICBRAINZ_API}recording",
             params={
@@ -81,7 +89,7 @@ class MusicBrainzUser(IUser):
         if not isinstance(data, dict):
             return []
         return [
-            build_track(recording)
+            build_track(recording, release_hints.get(str(recording.get("id") or "")))
             for recording in data.get("recordings") or []
             if isinstance(recording, dict)
         ]
@@ -255,6 +263,31 @@ class MusicBrainzUser(IUser):
         self._lb.delete_playlist(id)
 
     # --- helpers -------------------------------------------------------------------
+
+    @staticmethod
+    def _feedback_release_mbid(entry: Dict[str, Any]) -> str:
+        """The release a feedback entry points at, when ListenBrainz recorded one.
+
+        The app submits feedback by recording MBID only, so ``track_metadata`` is normally
+        ``null``; the ListenBrainz web player does store the mapping, and honouring it is
+        what keeps the cover of a liked track on the release that was actually played.
+        """
+        metadata = entry.get("track_metadata")
+        if not isinstance(metadata, dict):
+            return ""
+        mapping = metadata.get("mbid_mapping")
+        additional = metadata.get("additional_info")
+        candidates: List[Any] = []
+        if isinstance(mapping, dict):
+            candidates.extend([mapping.get("caa_release_mbid"), mapping.get("release_mbid")])
+        if isinstance(additional, dict):
+            candidates.extend(
+                [additional.get("caa_release_mbid"), additional.get("release_mbid")]
+            )
+        for candidate in candidates:
+            if candidate:
+                return str(candidate)
+        return ""
 
     @staticmethod
     def _first_credit_name(data: Any) -> str:
