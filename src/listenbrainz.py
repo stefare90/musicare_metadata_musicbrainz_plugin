@@ -22,7 +22,8 @@ class ListenBrainz:
     def __init__(self, client: HttpClient, credentials: Credentials) -> None:
         self._client = client
         self._credentials = credentials
-        self._username = ""
+        self._cached_token = ""
+        self._cached_username = ""
 
     @property
     def token(self) -> str:
@@ -50,14 +51,22 @@ class ListenBrainz:
         return str(user_name) if user_name else None
 
     def username(self) -> str:
-        """The authenticated account, or the public ``listenbrainz`` account when anonymous."""
-        if self._username:
-            return self._username
+        """The authenticated account, or the public ``listenbrainz`` account when anonymous.
+
+        The cache is keyed by the token: a changed token (log out and in as somebody
+        else) invalidates it, so the previous account's name is never served, while an
+        unchanged token keeps the cache with no extra ``validate-token`` call.
+        """
+        token = self._credentials.token
+        if token and token == self._cached_token:
+            return self._cached_username
         if self._credentials.is_authenticated:
-            name = self.validate_token(self._credentials.token)
+            name = self.validate_token(token)
             if name:
-                self._username = name
-        return self._username or "listenbrainz"
+                self._cached_token = token
+                self._cached_username = name
+                return name
+        return "listenbrainz"
 
     def me(self) -> Dict[str, Any]:
         if not self._credentials.is_authenticated:
