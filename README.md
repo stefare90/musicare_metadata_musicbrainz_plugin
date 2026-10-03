@@ -71,22 +71,36 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
 ### Behaviour notes
 
 - Albums are addressed as `rg:<release-group-mbid>` or `<release-mbid>`. A release group
-  is resolved to its first release, because track listings and cover art are
-  release-scoped.
+  is resolved to its first release for the track listing; cover art is taken at the
+  release-group level (see below).
 - A `Track` always carries a complete `Album` and complete `Artist`s, as the contract
   requires; when MusicBrainz returns a recording without a release, the album comes from
   the surrounding context (album page, playlist entry).
 - When a recording exists in several publications, the album is chosen **deterministically**
-  instead of by MusicBrainz's response order: releases are sorted by ascending date (a
-  missing month/day counts as the end of its period, the way MusicBrainz orders them),
-  compilations/live/remix editions are deprioritised and official prints preferred. This
-  matters because the bulk `recording?query=…` search used by `saved_tracks` returns
-  `releases` in a **different** order than the direct lookup, so taking `releases[0]`
-  could land the liked-track cover on a "Summer Hits" compilation. A release hint carried
-  by the entry wins over the sort (a liked feedback's `track_metadata.mbid_mapping.
-  caa_release_mbid`, when ListenBrainz stored one; the app's own feedback usually leaves
-  `track_metadata` empty). `saved_albums` is unaffected: it resolves the saved
-  release-group id directly.
+  instead of by MusicBrainz's response order, and **at the album level**: a release group
+  whose primary type is `Album` (with no secondary type such as Compilation/Live/Remix) is
+  preferred over a single, an EP or a compilation, so the track points at its own album even
+  when that album came out later than a single. Among the remaining candidates the criteria
+  are ascending date (a missing month/day counts as the end of its period, the way
+  MusicBrainz orders them), non-studio editions deprioritised and official prints preferred;
+  the release id breaks ties. This matters because the bulk `recording?query=…` search used
+  by `saved_tracks` returns `releases` in a **different** order than the direct lookup, so
+  taking `releases[0]` could land the album on a "Summer Hits" compilation — measured on
+  *Fenomeno*: before the fix the liked track pointed at the **single**'s release group while
+  the album page showed the album. A release hint carried by the entry wins over the sort (a
+  liked feedback's `track_metadata.mbid_mapping.caa_release_mbid`, when ListenBrainz stored
+  one; the app's own feedback usually leaves `track_metadata` empty). `saved_albums` is
+  unaffected: it resolves the saved release-group id directly.
+- **Covers are taken at the release-group level** (`coverartarchive.org/release-group/<id>/front-<size>`):
+  the one canonical front image per album. `build_album` uses the group cover whenever the
+  release payload carries a release group and falls back to the release cover only when the
+  group is absent. A release is one edition, so this is what makes the album page, the saved
+  tracks, the tracks built from a recording and the playlists written by the plugin show the
+  **same** picture. The Cover Art Archive exposes a group's front image as long as any of its
+  releases has one; whether the group has one is not in the MusicBrainz payload, so "group
+  present → group cover" is the only deterministic rule (no extra request). A track that
+  appears **only** on a single/EP/compilation gets that publication's release group: there is
+  no album to prefer, so its cover and name are the publication's.
 - `artist.top_tracks` ("Popular tracks") is the artist's ranking by **real listen count**
   from ListenBrainz `popularity/top-recordings-for-artist`, which requires the token. Rows
   are deduplicated by recording MBID (ListenBrainz returns duplicate rows — 37 on
@@ -122,19 +136,28 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   shows its fallback icon. Search follows the **uniform error policy**: a failed
   ListenBrainz call is a retryable error that fails `all()` too, exactly like a failed
   MusicBrainz call on the other categories.
-- The **saved library** is the pair of private ListenBrainz playlists (`__GYAWUN_ALBUMS__`,
-  `__GYAWUN_ARTISTS__`) described under *Authentication*, and the plugin treats them as the
-  saved set: `save_album`/`save_artist` are **idempotent** (saving an id already in the
-  playlist is a no-op, so a repeated tap cannot append a second row), and `unsave_*` of an
-  id that is not there is a **silent no-op**. Reads return the playlist as it is: rows a
-  pre-idempotent library already duplicated are **not** collapsed and are a manual cleanup,
-  not something the read path hides. This is deliberate — the write side keeps the
-  invariant, the read side does not paper over rows that should not exist.
+- The **saved library** is three private ListenBrainz playlists (`__GYAWUN_ALBUMS__`,
+  `__GYAWUN_ARTISTS__`, `__GYAWUN_PLAYLISTS__`) described under *Authentication*. The plugin
+  treats them as the saved set: `save_album`/`save_artist`/`save_playlist` are **idempotent**
+  (saving an id already there is a no-op, so a repeated tap cannot append a second row),
+  `save_playlist` stores a **reference** to the other user's playlist instead of copying it
+  (the id stays stable and the heart tracks the original), and `unsave_*` of an id that is not
+  there is a **silent no-op**. `saved_playlists` is the user's own playlists plus those
+  references resolved to the real documents, skipping a reference whose playlist has since
+  disappeared. `playlist.save`/`unsave` go through this library; `playlist.delete_playlist`
+  is a **real delete** (`playlist/<id>/delete`), independent of `unsave`. A **synthetic radio**
+  (`radio:*`) cannot be saved — it is generated on every read, has no playlist document, and
+  ListenBrainz rejects an item whose identifier is not a recording MBID — so saving one raises
+  `unsupported`. Reads return the playlists as they are: duplicate rows a pre-idempotent
+  library already has are **not** collapsed and are a manual cleanup, not something the read
+  path hides.
 - `playlist.add_tracks` is **idempotent** the same way: ids already in the playlist are
   silently skipped (duplicates within a single call collapse too), the new tracks keep
   their order and the requested `position`, and if every id is already present no request
-  is made. The contract's `add_tracks` returns nothing, so it is the host that tells the
-  user the track was already there. The trade-off is that a deliberate repetition of the
+  is made. The entries the plugin writes carry the album's `release_group_mbid`, so a playlist
+  built from the app shows the album cover; an entry ListenBrainz already holds keeps its own
+  release reference. The contract's `add_tracks` returns nothing, so it is the host that tells
+  the user the track was already there. The trade-off is that a deliberate repetition of the
   same recording in the same playlist cannot be expressed through this API.
 
 ## Authentication
@@ -160,10 +183,11 @@ the token**: logging out and in as another user invalidates it automatically, so
 and the `saved_*` calls cannot serve the previous account, while an unchanged token keeps
 serving the cache with no `validate-token` call per request.
 
-**Saved albums and artists** have no first-class MusicBrainz equivalent, so the plugin
-maintains two private ListenBrainz playlists (`__GYAWUN_ALBUMS__`,
-`__GYAWUN_ARTISTS__`), created on demand. Item identifiers keep the old plugin's scheme so
-a library saved before the migration still matches.
+**Saved albums, artists and playlists** have no first-class MusicBrainz equivalent, so the
+plugin maintains three private ListenBrainz playlists (`__GYAWUN_ALBUMS__`,
+`__GYAWUN_ARTISTS__`, `__GYAWUN_PLAYLISTS__`), created on demand. Item identifiers keep the
+old plugin's scheme so a library saved before the migration still matches; playlists are
+stored by reference (the other user's id), not copied.
 
 OAuth2 + PKCE (loopback redirect) is planned for providers that require it; this version
 only prompts for the token.
