@@ -20,6 +20,7 @@ from musicare_metadata_plugin_sdk import (
 from .. import jspf
 from ..http import HttpClient
 from ..listenbrainz import ListenBrainz
+from ..mapping import select_release
 from ..providers import (
     LISTENBRAINZ_SITE,
     MOOD_PLAYLISTS,
@@ -129,7 +130,8 @@ class MusicBrainzPlaylist(IPlaylist):
         self._lb.edit_playlist(playlist_id, final_name, final_description, final_public)
 
     def delete_playlist(self, playlist_id: str) -> None:
-        self._user.unsave_playlist(playlist_id)
+        self._lb.require_auth()
+        self._lb.delete_playlist(playlist_id)
 
     def add_tracks(
         self, playlist_id: str, track_ids: List[str], position: Optional[int] = None
@@ -234,7 +236,7 @@ class MusicBrainzPlaylist(IPlaylist):
     def _jspf_track(self, track_id: str) -> Dict[str, Any]:
         data = self._client.get_json(
             f"{MUSICBRAINZ_API}recording/{track_id}",
-            params={"fmt": "json", "inc": "artist-credits"},
+            params={"fmt": "json", "inc": "artist-credits+releases+release-groups"},
         )
         title = str(data.get("title") or "Unknown Track") if isinstance(data, dict) else "Unknown Track"
         artist_name = "Unknown Artist"
@@ -243,11 +245,19 @@ class MusicBrainzPlaylist(IPlaylist):
             artist = credits[0].get("artist")
             if isinstance(artist, dict) and artist.get("name"):
                 artist_name = str(artist["name"])
-        return {
+        track: Dict[str, Any] = {
             "identifier": external_uri("recording", track_id),
             "title": title,
             "creator": artist_name,
         }
+        release = select_release(data.get("releases")) if isinstance(data, dict) else None
+        group = release.get("release-group") if isinstance(release, dict) else None
+        group_id = group.get("id") if isinstance(group, dict) else None
+        if group_id:
+            # Reference the album (release group) so the entry's cover is the canonical
+            # one instead of whatever release ListenBrainz happens to store.
+            track["extension"] = {jspf.MB_TRACK_EXTENSION: {"release_group_mbid": str(group_id)}}
+        return track
 
     @staticmethod
     def _is_public(raw: Dict[str, Any]) -> bool:

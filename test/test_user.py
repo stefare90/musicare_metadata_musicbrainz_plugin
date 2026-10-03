@@ -2,7 +2,7 @@
 
 import pytest
 
-from musicare_metadata_plugin_sdk import AuthRequiredError
+from musicare_metadata_plugin_sdk import AuthRequiredError, NotFoundError, UnsupportedError
 
 from src.credentials import Credentials
 from src.listenbrainz import ListenBrainz
@@ -311,15 +311,207 @@ def test_unsave_album_deletes_the_matching_indices_in_reverse(tmp_path):
     ]
 
 
-def test_save_and_unsave_playlist_copy_then_delete(tmp_path):
-    user, client, _ = _user(tmp_path, lambda url, params: {}, lambda url, body: {})
+def test_save_playlist_adds_a_reference_to_the_hidden_playlist(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {"playlists": []}
+        if "playlist/refs" in url:
+            return {"playlist": {"track": []}}
+        raise AssertionError(url)
+
+    def post_handler(url, body):
+        if "playlist/create" in url:
+            assert body["playlist"]["title"] == "__GYAWUN_PLAYLISTS__"
+            return {"playlist_mbid": "refs"}
+        return {}
+
+    user, client, _ = _user(tmp_path, handler, post_handler)
 
     user.save_playlist("p1")
+
+    track = _posts(client, "item/add")[0]["playlist"]["track"][0]
+    assert track["identifier"] == "https://musicbrainz.org/recording/p1"
+    assert not any("playlist/p1/copy" in url for _, url, _ in client.calls)
+
+
+def test_save_playlist_is_idempotent_when_already_referenced(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "__GYAWUN_PLAYLISTS__",
+                            "identifier": "https://listenbrainz.org/playlist/refs",
+                        }
+                    }
+                ]
+            }
+        if "playlist/refs" in url:
+            return {
+                "playlist": {"track": [{"identifier": ["https://musicbrainz.org/recording/p1"]}]}
+            }
+        raise AssertionError(url)
+
+    user, client, _ = _user(tmp_path, handler, lambda url, body: {})
+
+    user.save_playlist("p1")
+
+    assert _posts(client, "item/add") == []
+
+
+def test_save_playlist_rejects_a_synthetic_radio(tmp_path):
+    user, client, _ = _user(tmp_path, lambda url, params: {})
+
+    with pytest.raises(UnsupportedError):
+        user.save_playlist("radio:tag:chill")
+
+    assert client.calls == []
+
+
+def test_unsave_playlist_removes_the_reference(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "__GYAWUN_PLAYLISTS__",
+                            "identifier": "https://listenbrainz.org/playlist/refs",
+                        }
+                    }
+                ]
+            }
+        if "playlist/refs" in url:
+            return {
+                "playlist": {
+                    "track": [
+                        {"identifier": ["https://musicbrainz.org/recording/p1"]},
+                        {"identifier": ["https://musicbrainz.org/recording/p2"]},
+                    ]
+                }
+            }
+        raise AssertionError(url)
+
+    user, client, _ = _user(tmp_path, handler, lambda url, body: {})
+
     user.unsave_playlist("p1")
 
-    urls = [url for kind, url, _ in client.calls if kind == "post"]
-    assert urls[-2].endswith("playlist/p1/copy")
-    assert urls[-1].endswith("playlist/p1/delete")
+    assert _posts(client, "item/delete") == [{"index": 0, "count": 1}]
+    assert not any("playlist/p1/delete" in url for _, url, _ in client.calls)
+
+
+def test_saved_playlists_includes_referenced_playlists(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "__GYAWUN_PLAYLISTS__",
+                            "identifier": "https://listenbrainz.org/playlist/refs",
+                        }
+                    }
+                ]
+            }
+        if "playlist/refs" in url:
+            return {
+                "playlist": {"track": [{"identifier": ["https://musicbrainz.org/recording/p9"]}]}
+            }
+        if "playlist/p9" in url:
+            return {
+                "playlist": {
+                    "title": "Someone else's mix",
+                    "annotation": "shared",
+                    "creator": "bob",
+                    "identifier": "https://listenbrainz.org/playlist/p9",
+                }
+            }
+        raise AssertionError(url)
+
+    user, _, _ = _user(tmp_path, handler)
+
+    page = user.saved_playlists()
+
+    assert page.total == 1
+    assert page.items[0].id == "p9"
+    assert page.items[0].name == "Someone else's mix"
+    assert page.items[0].owner.id == "bob"
+
+
+def test_saved_playlists_skips_a_vanished_reference(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "__GYAWUN_PLAYLISTS__",
+                            "identifier": "https://listenbrainz.org/playlist/refs",
+                        }
+                    }
+                ]
+            }
+        if "playlist/refs" in url:
+            return {
+                "playlist": {
+                    "track": [
+                        {"identifier": ["https://musicbrainz.org/recording/gone"]},
+                        {"identifier": ["https://musicbrainz.org/recording/here"]},
+                    ]
+                }
+            }
+        if "playlist/gone" in url:
+            raise NotFoundError("gone")
+        if "playlist/here" in url:
+            return {
+                "playlist": {
+                    "title": "Still here",
+                    "identifier": "https://listenbrainz.org/playlist/here",
+                }
+            }
+        raise AssertionError(url)
+
+    user, _, _ = _user(tmp_path, handler)
+
+    page = user.saved_playlists()
+
+    assert [playlist.id for playlist in page.items] == ["here"]
+
+
+def test_saved_playlists_without_a_token_does_not_expand_the_references(tmp_path):
+    def handler(url, params):
+        if "user/listenbrainz/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "Weekly Exploration",
+                            "identifier": "https://listenbrainz.org/playlist/w1",
+                            "creator": "listenbrainz",
+                        }
+                    }
+                ]
+            }
+        raise AssertionError(url)
+
+    client = StubClient(handler)
+    user = MusicBrainzUser(ListenBrainz(client, Credentials()), client, StubImages())
+
+    page = user.saved_playlists()
+
+    assert [playlist.id for playlist in page.items] == ["w1"]
+    assert all(kind == "get" for kind, _, _ in client.calls)
 
 
 def _albums_library(handler_extra=None):

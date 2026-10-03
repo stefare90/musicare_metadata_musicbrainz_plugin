@@ -90,14 +90,24 @@ class ListenBrainz:
         playlist = data.get("playlist") if isinstance(data, dict) else None
         return playlist if isinstance(playlist, dict) else {}
 
-    def get_or_create_playlist(self, title: str) -> str:
-        self.require_auth()
+    def find_playlist(self, title: str) -> str:
+        """Id of the user's playlist with this title, or ``""`` when there is none.
+
+        A read-only lookup: listing the library must not create the hidden playlist.
+        """
         for entry in self.user_playlists():
             playlist = entry.get("playlist") if isinstance(entry, dict) else None
             if isinstance(playlist, dict) and playlist.get("title") == title:
                 identifier = playlist.get("identifier")
                 if identifier:
                     return str(identifier).rsplit("/", 1)[-1]
+        return ""
+
+    def get_or_create_playlist(self, title: str) -> str:
+        self.require_auth()
+        existing = self.find_playlist(title)
+        if existing:
+            return existing
         data = self._client.post_json(
             f"{LISTENBRAINZ_API}playlist/create",
             headers=self._headers(required=True),
@@ -167,11 +177,6 @@ class ListenBrainz:
                 headers=self._headers(required=True),
                 body={"index": index, "count": 1},
             )
-
-    def copy_playlist(self, mbid: str) -> None:
-        self._client.post_json(
-            f"{LISTENBRAINZ_API}playlist/{mbid}/copy", headers=self._headers(required=True)
-        )
 
     def delete_playlist(self, mbid: str) -> None:
         self._client.post_json(

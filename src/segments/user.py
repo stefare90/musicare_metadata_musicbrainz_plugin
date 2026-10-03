@@ -12,9 +12,11 @@ from musicare_metadata_plugin_sdk import (
     Album,
     Artist,
     IUser,
+    NotFoundError,
     PaginatedResult,
     Playlist,
     Track,
+    UnsupportedError,
     User,
 )
 
@@ -28,10 +30,12 @@ from ..providers import (
     MUSICBRAINZ_API,
     SAVED_ALBUMS_PLAYLIST,
     SAVED_ARTISTS_PLAYLIST,
+    SAVED_PLAYLISTS_PLAYLIST,
     external_uri,
 )
 
 _RECORDING_INCLUDES = "artist-credits+releases+release-groups+isrcs"
+_HIDDEN_PLAYLISTS = (SAVED_ALBUMS_PLAYLIST, SAVED_ARTISTS_PLAYLIST, SAVED_PLAYLISTS_PLAYLIST)
 
 
 class MusicBrainzUser(IUser):
@@ -157,34 +161,70 @@ class MusicBrainzUser(IUser):
     # --- saved playlists -----------------------------------------------------------
 
     def saved_playlist_items(self) -> List[Playlist]:
-        """Every saved playlist, before pagination (search filters over this list)."""
+        """Every playlist in the library, before pagination (search filters over this list).
+
+        The library is the user's own playlists plus the ones saved by reference in the
+        hidden ``__GYAWUN_PLAYLISTS__`` playlist. The hidden playlists themselves are
+        skipped, a reference whose playlist has since disappeared is dropped without
+        failing the whole list, and the references are only expanded for an authenticated
+        account (the anonymous case still lists the curated ``listenbrainz`` playlists).
+        """
         username = self._lb.username()
         items: List[Playlist] = []
+        seen = set()
         for entry in self._lb.user_playlists(username):
             playlist = entry.get("playlist") if isinstance(entry, dict) else None
             if not isinstance(playlist, dict):
                 continue
-            if playlist.get("title") in (SAVED_ALBUMS_PLAYLIST, SAVED_ARTISTS_PLAYLIST):
+            if playlist.get("title") in _HIDDEN_PLAYLISTS:
                 continue
             identifier = playlist.get("identifier")
             if not identifier:
                 continue
-            creator = str(playlist.get("creator") or username)
-            items.append(
-                Playlist(
-                    id=str(identifier).rsplit("/", 1)[-1],
-                    name=str(playlist.get("title") or ""),
-                    description=str(playlist.get("annotation") or ""),
-                    external_uri=str(identifier),
-                    owner=User(
-                        id=creator,
-                        name=creator,
-                        external_uri=f"{LISTENBRAINZ_SITE}user/{creator}",
-                    ),
-                    images=[],
-                )
-            )
+            playlist_id = str(identifier).rsplit("/", 1)[-1]
+            if playlist_id in seen:
+                continue
+            seen.add(playlist_id)
+            items.append(self._playlist_from_raw(playlist_id, playlist, username))
+        if self._lb.token:
+            items.extend(self._referenced_playlists(seen))
         return items
+
+    def _referenced_playlists(self, seen: set) -> List[Playlist]:
+        """Resolve the saved-playlist references, skipping the vanished ones."""
+        mbid = self._lb.find_playlist(SAVED_PLAYLISTS_PLAYLIST)
+        if not mbid:
+            return []
+        items: List[Playlist] = []
+        for track in self._playlist_tracks(mbid):
+            playlist_id = self._track_mbid(track)
+            if not playlist_id or playlist_id in seen:
+                continue
+            seen.add(playlist_id)
+            try:
+                raw = self._lb.playlist(playlist_id)
+            except NotFoundError:
+                continue
+            if raw:
+                items.append(self._playlist_from_raw(playlist_id, raw, ""))
+        return items
+
+    @staticmethod
+    def _playlist_from_raw(playlist_id: str, raw: Dict[str, Any], default_owner: str) -> Playlist:
+        creator = str(raw.get("creator") or default_owner)
+        identifier = raw.get("identifier")
+        return Playlist(
+            id=playlist_id,
+            name=str(raw.get("title") or ""),
+            description=str(raw.get("annotation") or ""),
+            external_uri=str(identifier or f"{LISTENBRAINZ_SITE}playlist/{playlist_id}"),
+            owner=User(
+                id=creator,
+                name=creator,
+                external_uri=f"{LISTENBRAINZ_SITE}user/{creator}",
+            ),
+            images=[],
+        )
 
     def saved_playlists(self, offset: int = 0, limit: int = 20) -> PaginatedResult[Playlist]:
         items = self.saved_playlist_items()
@@ -256,11 +296,33 @@ class MusicBrainzUser(IUser):
 
     def save_playlist(self, id: str) -> None:
         self._lb.require_auth()
-        self._lb.copy_playlist(id)
+        if id.startswith("radio:"):
+            raise UnsupportedError(
+                "Synthetic radios are generated on every read and cannot be saved to the library"
+            )
+        playlist_mbid = self._lb.get_or_create_playlist(SAVED_PLAYLISTS_PLAYLIST)
+        # Saving again must not append a second reference: the hidden playlist *is* the
+        # saved set, so a duplicate would stay visible.
+        if id in self._playlist_ids(playlist_mbid):
+            return
+        self._lb.add_items(
+            playlist_mbid,
+            [
+                {
+                    # ListenBrainz only accepts a recording URI as an item identifier, so
+                    # the playlist id travels the same way album/artist ids do.
+                    "identifier": external_uri("recording", id),
+                    "title": id,
+                }
+            ],
+        )
 
     def unsave_playlist(self, id: str) -> None:
         self._lb.require_auth()
-        self._lb.delete_playlist(id)
+        playlist_mbid = self._lb.find_playlist(SAVED_PLAYLISTS_PLAYLIST)
+        if not playlist_mbid:
+            return
+        self._remove_matching(playlist_mbid, id)
 
     # --- helpers -------------------------------------------------------------------
 

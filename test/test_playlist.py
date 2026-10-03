@@ -167,6 +167,32 @@ def test_add_tracks_builds_jspf_entries_with_a_position(tmp_path):
     playlist.add_tracks("pl-1", ["rec-1"], position=3)
 
 
+def test_add_tracks_embeds_the_release_group_in_the_entry(tmp_path):
+    def handler(url, params):
+        if "playlist/pl-1" in url:
+            return {"playlist": {"track": []}}
+        assert url.endswith("recording/rec-1")
+        return {
+            "title": "Song",
+            "artist-credit": [{"artist": {"id": "a1", "name": "A"}}],
+            "releases": [
+                {
+                    "id": "rel",
+                    "title": "Album",
+                    "release-group": {"id": "g1", "primary-type": "Album"},
+                }
+            ],
+        }
+
+    playlist, client, _ = _playlist(tmp_path, handler, lambda url, body: {})
+
+    playlist.add_tracks("pl-1", ["rec-1"])
+
+    entries = [body for kind, url, body in client.calls if kind == "post"]
+    extension = entries[0]["playlist"]["track"][0]["extension"]
+    assert extension[MB_TRACK_EXTENSION]["release_group_mbid"] == "g1"
+
+
 def test_add_tracks_skips_tracks_already_in_the_playlist(tmp_path):
     def handler(url, params):
         assert "playlist/pl-1" in url
@@ -240,3 +266,37 @@ def test_save_and_unsave_delegate_to_the_user_library(tmp_path):
     playlist.unsave("p1")
 
     assert user.calls == [("save", "p1"), ("unsave", "p1")]
+
+
+def test_delete_playlist_calls_the_provider_delete(tmp_path):
+    def post_handler(url, body):
+        assert url.endswith("playlist/pl-1/delete")
+        return {}
+
+    playlist, client, user = _playlist(tmp_path, lambda url, params: _PLAYLIST, post_handler)
+
+    playlist.delete_playlist("pl-1")
+
+    posts = [url for kind, url, _ in client.calls if kind == "post"]
+    assert posts == ["https://api.listenbrainz.org/1/playlist/pl-1/delete"]
+    assert user.calls == []
+
+
+def test_delete_playlist_makes_the_playlist_unreachable(tmp_path):
+    state = {"deleted": False}
+
+    def handler(url, params):
+        if state["deleted"]:
+            raise NotFoundError("playlist gone")
+        return _PLAYLIST
+
+    def post_handler(url, body):
+        state["deleted"] = True
+        return {}
+
+    playlist, _, _ = _playlist(tmp_path, handler, post_handler)
+
+    playlist.delete_playlist("pl-1")
+
+    with pytest.raises(NotFoundError):
+        playlist.get_playlist("pl-1")

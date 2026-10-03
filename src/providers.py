@@ -8,10 +8,11 @@ LISTENBRAINZ_LABS = "https://labs.api.listenbrainz.org"
 WIKIDATA_API = "https://www.wikidata.org/w/api.php"
 COVER_ART_ARCHIVE = "https://coverartarchive.org/"
 
-# The two private ListenBrainz playlists the plugin uses as the "saved albums" and
-# "saved artists" library (ListenBrainz has no first-class equivalent).
+# The private ListenBrainz playlists the plugin uses as the "saved albums", "saved
+# artists" and "saved playlists" library (ListenBrainz has no first-class equivalent).
 SAVED_ALBUMS_PLAYLIST = "__GYAWUN_ALBUMS__"
 SAVED_ARTISTS_PLAYLIST = "__GYAWUN_ARTISTS__"
+SAVED_PLAYLISTS_PLAYLIST = "__GYAWUN_PLAYLISTS__"
 
 # The mood radios offered by the browse section, as ``(tag, title)`` pairs.
 MOOD_PLAYLISTS = (
