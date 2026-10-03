@@ -109,8 +109,13 @@ def _release_rank(release: Dict[str, Any]) -> tuple:
     secondary = group.get("secondary-types")
     secondary = secondary if isinstance(secondary, list) else []
     non_studio = any(str(item).lower() in _NON_STUDIO_SECONDARY_TYPES for item in secondary)
+    # An album (primary type ``Album``, no secondary type) is the track's own publication;
+    # a single, EP or compilation is not. Preferring it keeps the same record the album page
+    # shows, instead of a single whose release happens to be older.
+    studio_album = 0 if (str(group.get("primary-type") or "").lower() == "album" and not secondary) else 1
     official = 0 if str(release.get("status") or "") == "Official" else 1
     return (
+        studio_album,
         1 if non_studio else 0,
         official,
         _release_date_key(release.get("date")),
@@ -144,12 +149,14 @@ def _cover_images(prefix: str, mbid: str, sizes: Iterable[int]) -> List[Image]:
 
 
 def build_album(release: Dict[str, Any]) -> Album:
-    """Build an album from a MusicBrainz *release* payload (the old plugin's ``buildAlbum``)."""
+    """Build an album from a MusicBrainz *release* payload (the old plugin's ``buildAlbum``).
+
+    The cover comes from the **release group**, not the release: the group has one canonical
+    front image, while a release is one edition of it. That is what keeps the album page, the
+    saved tracks and the playlists on the same picture. When the release has no group (the
+    payload did not include one) the release cover is the only option left.
+    """
     release_id = str(release.get("id") or "")
-    images: List[Image] = []
-    cover_art = release.get("cover-art-archive")
-    if isinstance(cover_art, dict) and cover_art.get("front") is True and release_id:
-        images = _cover_images("release", release_id, COVER_SIZES)
 
     track_count = 0
     media = release.get("media")
@@ -161,17 +168,18 @@ def build_album(release: Dict[str, Any]) -> Album:
     album_id = release_id
     album_type = AlbumType.ALBUM
     release_group = release.get("release-group")
-    if isinstance(release_group, dict):
-        group_id = release_group.get("id")
-        if group_id:
-            album_id = f"rg:{group_id}"
+    group_id = ""
+    if isinstance(release_group, dict) and release_group.get("id"):
+        group_id = str(release_group["id"])
+        album_id = f"rg:{group_id}"
         album_type = _album_type(release_group.get("primary-type"))
 
-    if not images:
-        if isinstance(release_group, dict) and release_group.get("id"):
-            images = _cover_images("release-group", str(release_group["id"]), COVER_SIZES)
-        elif release_id:
-            images = _cover_images("release", release_id, COVER_SIZES)
+    if group_id:
+        images = _cover_images("release-group", group_id, COVER_SIZES)
+    elif release_id:
+        images = _cover_images("release", release_id, COVER_SIZES)
+    else:
+        images = []
 
     return Album(
         id=album_id,

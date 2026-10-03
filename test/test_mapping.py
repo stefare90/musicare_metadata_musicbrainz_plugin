@@ -9,6 +9,7 @@ from src.mapping import (
     build_track,
     recording_artist_ids,
     recording_tag_names,
+    select_release,
 )
 
 from ._fixtures import (
@@ -20,7 +21,7 @@ from ._fixtures import (
 )
 
 
-def test_build_album_uses_release_cover_when_present():
+def test_build_album_prefers_the_release_group_cover():
     album = build_album(release_payload(front=True))
 
     assert album.id == "rg:group-1"
@@ -30,11 +31,13 @@ def test_build_album_uses_release_cover_when_present():
     assert album.total_tracks == 13
     assert album.album_type is AlbumType.ALBUM
     assert [(image.width, image.height) for image in album.images] == [(250, 250), (500, 500)]
-    assert album.images[0].url == "https://coverartarchive.org/release/release-1/front-250.jpg"
+    assert album.images[0].url == (
+        "https://coverartarchive.org/release-group/group-1/front-250.jpg"
+    )
     assert [artist.id for artist in album.artists] == [ARTIST_MBID]
 
 
-def test_build_album_falls_back_to_release_group_cover():
+def test_build_album_uses_the_release_group_cover_without_a_release_cover():
     album = build_album(release_payload(front=False))
 
     assert album.images[0].url == (
@@ -98,6 +101,52 @@ def test_build_track_skips_a_compilation_for_the_studio_release():
 
     assert track.album.id == "rg:studio-group"
     assert track.album.name == "Fenomeno"
+
+
+def test_build_track_prefers_the_album_over_an_earlier_single():
+    single = release_payload(
+        release_id="single",
+        group_id="single-group",
+        title="Fenomeno",
+        date="2017-03-03",
+        primary_type="Single",
+    )
+    album = release_payload(
+        release_id="album",
+        group_id="album-group",
+        title="Fenomeno",
+        date="2017-04-07",
+        primary_type="Album",
+    )
+
+    track = build_track(recording_payload(releases=[single, album]))
+
+    assert track.album.id == "rg:album-group"
+
+
+def test_select_release_prefers_the_oldest_studio_album():
+    reissue = release_payload(release_id="reissue", group_id="a-group", date="2020-01-01")
+    original = release_payload(release_id="original", group_id="b-group", date="1997-05-28")
+
+    chosen = select_release([reissue, original])
+
+    assert chosen["id"] == "original"
+
+
+def test_select_release_uses_a_single_when_there_is_no_album():
+    single = release_payload(
+        release_id="only", group_id="single-group", date="2017-03-03", primary_type="Single"
+    )
+    compilation = release_payload(
+        release_id="comp",
+        group_id="comp-group",
+        date="2017",
+        secondary_types=["Compilation"],
+    )
+
+    chosen = select_release([compilation, single])
+
+    assert chosen["id"] == "only"
 
 
 def test_build_track_picks_the_earliest_release_date():
