@@ -230,6 +230,43 @@ def test_saved_playlists_filters_the_hidden_playlists(tmp_path):
     assert page.items[0].id == "p1"
 
 
+def test_saved_playlists_read_the_visibility_from_the_extension(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "Public Mix",
+                            "identifier": "https://listenbrainz.org/playlist/p1",
+                            "creator": "tester",
+                            "extension": {
+                                "https://musicbrainz.org/doc/jspf#playlist": {"public": True}
+                            },
+                        }
+                    },
+                    {
+                        "playlist": {
+                            "title": "Private Mix",
+                            "identifier": "https://listenbrainz.org/playlist/p2",
+                            "creator": "tester",
+                        }
+                    },
+                ]
+            }
+        raise AssertionError(url)
+
+    user, _, _ = _user(tmp_path, handler)
+
+    items = user.saved_playlist_items()
+
+    assert [item.id for item in items] == ["p1", "p2"]
+    assert items[0].is_public is True
+    assert items[1].is_public is False
+
+
 def test_save_and_unsave_track_submit_feedback(tmp_path):
     def post_handler(url, body):
         assert "recording-feedback" in url

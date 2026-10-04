@@ -29,7 +29,6 @@ from ..providers import (
     external_uri,
 )
 
-_JSPF_PLAYLIST_EXTENSION = "https://musicbrainz.org/doc/jspf#playlist"
 _MOOD_TITLES = dict(MOOD_PLAYLISTS)
 LISTENBRAINZ_OWNER = User(
     id="listenbrainz", name="ListenBrainz", external_uri="https://listenbrainz.org"
@@ -65,7 +64,7 @@ class MusicBrainzPlaylist(IPlaylist):
                 external_uri=f"{LISTENBRAINZ_SITE}user/{creator}",
             ),
             images=self._cover_art(raw),
-            is_public=self._is_public(raw),
+            is_public=jspf.playlist_is_public(raw),
         )
 
     def tracks(self, id: str, offset: int = 0, limit: int = 20) -> PaginatedResult[Track]:
@@ -126,7 +125,7 @@ class MusicBrainzPlaylist(IPlaylist):
         final_description = (
             description if description is not None else str(raw.get("annotation") or "")
         )
-        final_public = public if public is not None else self._is_public(raw)
+        final_public = public if public is not None else jspf.playlist_is_public(raw)
         self._lb.edit_playlist(playlist_id, final_name, final_description, final_public)
 
     def delete_playlist(self, playlist_id: str) -> None:
@@ -194,7 +193,7 @@ class MusicBrainzPlaylist(IPlaylist):
             "creator": "listenbrainz",
             "identifier": f"{LISTENBRAINZ_SITE}playlist/{id}",
             "track": [],
-            "extension": {_JSPF_PLAYLIST_EXTENSION: {"public": False}},
+            "extension": {jspf.MB_PLAYLIST_EXTENSION: {"public": False}},
         }
 
     def _radio_tracks(
@@ -258,17 +257,6 @@ class MusicBrainzPlaylist(IPlaylist):
             # one instead of whatever release ListenBrainz happens to store.
             track["extension"] = {jspf.MB_TRACK_EXTENSION: {"release_group_mbid": str(group_id)}}
         return track
-
-    @staticmethod
-    def _is_public(raw: Dict[str, Any]) -> bool:
-        extension = raw.get("extension")
-        playlist_extension = (
-            extension.get(_JSPF_PLAYLIST_EXTENSION) if isinstance(extension, dict) else None
-        )
-        if not isinstance(playlist_extension, dict):
-            return False
-        value = playlist_extension.get("public")
-        return value is True or str(value) == "true"
 
     @staticmethod
     def _cover_art(raw: Dict[str, Any]) -> List[Image]:

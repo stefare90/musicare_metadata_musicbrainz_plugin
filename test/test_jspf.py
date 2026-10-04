@@ -105,3 +105,15 @@ def test_artists_fall_back_to_the_creator_name():
     assert len(artists) == 1
     assert artists[0].id == ""
     assert artists[0].name == "Someone"
+
+
+def test_playlist_is_public_reads_the_playlist_extension():
+    def playlist(extension):
+        return {"title": "Mix", "extension": extension}
+
+    assert jspf.playlist_is_public(playlist({jspf.MB_PLAYLIST_EXTENSION: {"public": True}})) is True
+    assert jspf.playlist_is_public(playlist({jspf.MB_PLAYLIST_EXTENSION: {"public": "true"}})) is True
+    assert jspf.playlist_is_public(playlist({jspf.MB_PLAYLIST_EXTENSION: {"public": False}})) is False
+    assert jspf.playlist_is_public(playlist({jspf.MB_PLAYLIST_EXTENSION: {}})) is False
+    assert jspf.playlist_is_public(playlist({})) is False
+    assert jspf.playlist_is_public({}) is False

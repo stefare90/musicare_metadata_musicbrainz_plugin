@@ -150,7 +150,10 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   ListenBrainz rejects an item whose identifier is not a recording MBID — so saving one raises
   `unsupported`. Reads return the playlists as they are: duplicate rows a pre-idempotent
   library already has are **not** collapsed and are a manual cleanup, not something the read
-  path hides.
+  path hides. `is_public` (the host's visibility badge) is read from the JSPF `extension` on
+  **every** path that builds a `Playlist` from a raw ListenBrainz document — the library list
+  and *Created For You* included, not just `get_playlist`; a missing `extension` or a missing
+  `public` key reads as private, which is ListenBrainz's default.
 - `playlist.add_tracks` is **idempotent** the same way: ids already in the playlist are
   silently skipped (duplicates within a single call collapse too), the new tracks keep
   their order and the requested `position`, and if every id is already present no request

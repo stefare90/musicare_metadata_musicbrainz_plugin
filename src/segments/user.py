@@ -224,6 +224,7 @@ class MusicBrainzUser(IUser):
                 external_uri=f"{LISTENBRAINZ_SITE}user/{creator}",
             ),
             images=[],
+            is_public=jspf.playlist_is_public(raw),
         )
 
     def saved_playlists(self, offset: int = 0, limit: int = 20) -> PaginatedResult[Playlist]:

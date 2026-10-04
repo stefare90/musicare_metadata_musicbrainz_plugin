@@ -56,6 +56,34 @@ def test_created_for_you_maps_the_algorithmic_playlists():
     assert page.total == 1
 
 
+def test_created_for_you_reads_the_playlist_visibility():
+    def handler(url, params):
+        assert url.endswith("user/tester/playlists/createdfor")
+        return {
+            "playlists": [
+                {
+                    "playlist": {
+                        "identifier": "https://listenbrainz.org/playlist/c1",
+                        "title": "Public",
+                        "extension": {
+                            "https://musicbrainz.org/doc/jspf#playlist": {"public": True}
+                        },
+                    }
+                },
+                {
+                    "playlist": {
+                        "identifier": "https://listenbrainz.org/playlist/c2",
+                        "title": "Private",
+                    }
+                },
+            ]
+        }
+
+    items = _browse(handler).section_items("created_for_you").items
+
+    assert [item.is_public for item in items] == [True, False]
+
+
 def test_created_for_you_falls_back_to_the_saved_playlists():
     saved = "the-saved-page"
 

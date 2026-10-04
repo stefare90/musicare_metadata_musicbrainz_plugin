@@ -10,6 +10,7 @@ from typing import Any, List, Tuple
 
 from musicare_metadata_plugin_sdk import IBrowse, PaginatedResult, Playlist, Section, User
 
+from .. import jspf
 from ..listenbrainz import ListenBrainz
 from ..providers import LISTENBRAINZ_SITE, MOOD_PLAYLISTS
 
@@ -91,6 +92,7 @@ class MusicBrainzBrowse(IBrowse):
                         external_uri=f"{LISTENBRAINZ_SITE}user/{creator}",
                     ),
                     images=[],
+                    is_public=jspf.playlist_is_public(playlist),
                 )
             )
         return items

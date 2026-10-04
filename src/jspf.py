@@ -13,8 +13,27 @@ from musicare_metadata_plugin_sdk import Album, AlbumType, Artist, Image, Track
 from .providers import cover_url, external_uri
 
 MB_TRACK_EXTENSION = "https://musicbrainz.org/doc/jspf#track"
+MB_PLAYLIST_EXTENSION = "https://musicbrainz.org/doc/jspf#playlist"
 _LENGTH_FIELDS = ("duration_ms", "length")
 _TOP_LEVEL_LENGTH_FIELDS = ("duration", "length")
+
+
+def playlist_is_public(playlist: Dict[str, Any]) -> bool:
+    """Whether a JSPF playlist document asks for public visibility.
+
+    A missing extension, or a missing ``public`` key, means private: that is how
+    ListenBrainz represents the default and how playlists created before the field
+    existed read. The value is coerced because ListenBrainz sometimes serialises the
+    flag as the string ``"true"``.
+    """
+    extension = playlist.get("extension")
+    playlist_extension = (
+        extension.get(MB_PLAYLIST_EXTENSION) if isinstance(extension, dict) else None
+    )
+    if not isinstance(playlist_extension, dict):
+        return False
+    value = playlist_extension.get("public")
+    return value is True or str(value) == "true"
 
 
 def _extension(track: Dict[str, Any]) -> Optional[Dict[str, Any]]:
