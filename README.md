@@ -2,7 +2,7 @@
 
 Official MusicAre **metadata** plugin, written in **100% Pure-Python**. It implements the
 `musicare_metadata_plugin_sdk` contracts and is loaded by the MusicAre metadata runtime
-(`musicare_plugin_sdk`, `pluginSdkVersion 4.1.0`). It replaces the archived Dart bytecode
+(`musicare_plugin_sdk`, `pluginSdkVersion 5.0.0`). It replaces the archived Dart bytecode
 plugin (`gyawun_metadata_plugin`), whose behaviour it preserves.
 
 Providers: **MusicBrainz** (search, releases, release groups, recordings),
@@ -25,10 +25,12 @@ build chain.
   Python, vendored into `plugin.zip`: the CPython embedded in the Android app ships no CA
   store, so without it HTTPS fails with `CERTIFICATE_VERIFY_FAILED`. It is the same reason
   the YouTube audio plugin vendors it.
-- `pluginSdkVersion: 4.1.0`. The matching host SDK is `musicare_metadata_host_sdk`.
-  **The plugin requires a host SDK `4.1.0`**: an app still on `4.0.0` rejects it (the
-  user sees the update page), because it uses the form-level `title`/`message` and the
-  per-field `help_url` added in that version.
+- `pluginSdkVersion: 5.0.0`. The matching host SDK is `musicare_metadata_host_sdk`.
+  **The plugin requires a host SDK `5.0.0`**: an app below that version rejects it (the
+  user sees the update page), because `IPlaylist.add_tracks` now returns an
+  `AddTracksResult` instead of `void` (a breaking contract change). Older hosts that only
+  add tracks and ignore the outcome still work at the wire level, but a host built on a
+  previous contract version would refuse to load this plugin.
 
 ## Layout
 
@@ -154,14 +156,18 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   **every** path that builds a `Playlist` from a raw ListenBrainz document — the library list
   and *Created For You* included, not just `get_playlist`; a missing `extension` or a missing
   `public` key reads as private, which is ListenBrainz's default.
-- `playlist.add_tracks` is **idempotent** the same way: ids already in the playlist are
-  silently skipped (duplicates within a single call collapse too), the new tracks keep
-  their order and the requested `position`, and if every id is already present no request
-  is made. The entries the plugin writes carry the album's `release_group_mbid`, so a playlist
-  built from the app shows the album cover; an entry ListenBrainz already holds keeps its own
-  release reference. The contract's `add_tracks` returns nothing, so it is the host that tells
-  the user the track was already there. The trade-off is that a deliberate repetition of the
-  same recording in the same playlist cannot be expressed through this API.
+- `playlist.add_tracks` is **idempotent** and **reports what it changed**: it returns an
+  `AddTracksResult { added, already_present }`. An id already in the playlist (or repeated
+  within the batch) is not added again and is listed in `already_present`; `added` counts the
+  new tracks actually sent to ListenBrainz after their JSPF entry is resolved, so adding a
+  track that is already there is a successful no-op with `added: 0` and **no request**. The
+  new tracks keep their order and the requested `position`. The outcome is returned only after
+  the write succeeds, and a failure is a call-level error (one of the typed errors), never a
+  partial result — the call is idempotent, so retrying it is safe. The entries the plugin
+  writes carry the album's `release_group_mbid`, so a playlist built from the app shows the
+  album cover; an entry ListenBrainz already holds keeps its own release reference. The
+  trade-off is that a deliberate repetition of the same recording in the same playlist cannot
+  be expressed through this API.
 
 ## Authentication
 

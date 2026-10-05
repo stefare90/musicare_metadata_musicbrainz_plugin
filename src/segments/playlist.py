@@ -8,6 +8,7 @@ the ``lb-radio`` endpoint, so ``get_playlist`` and ``tracks`` treat them like an
 from typing import Any, Dict, List, Optional
 
 from musicare_metadata_plugin_sdk import (
+    AddTracksResult,
     IPlaylist,
     Image,
     NotFoundError,
@@ -134,26 +135,30 @@ class MusicBrainzPlaylist(IPlaylist):
 
     def add_tracks(
         self, playlist_id: str, track_ids: List[str], position: Optional[int] = None
-    ) -> None:
-        """Add the tracks that are not in the playlist yet, in the order given.
+    ) -> AddTracksResult:
+        """Add the tracks that are not in the playlist yet, and report what changed.
 
-        A duplicate id is silently skipped: the contract's ``add_tracks`` returns nothing,
-        so the plugin guarantees idempotence instead of asking the host to check first
-        (adding a track that is already there used to append a second row). The requested
-        ``position`` applies to the new tracks; if every id is already present no request
-        is made.
+        An id that is already in the playlist (or repeated within the batch) is not added
+        again and is listed in ``already_present``, so the host can tell the user instead of
+        claiming a false success. ``added`` counts the new ids actually sent to
+        ``add_items``; when every id is already present no request is made and the outcome
+        says so. The requested ``position`` applies to the new tracks only. Exceptions
+        propagate unchanged: a failure is a call-level error, never a partial result.
         """
         present = self._track_ids(playlist_id)
         new_ids: List[str] = []
+        already_present: List[str] = []
         for track_id in track_ids:
             if track_id in present:
+                already_present.append(track_id)
                 continue
             present.add(track_id)
             new_ids.append(track_id)
         if not new_ids:
-            return
-        jspf_tracks = [self._jspf_track(track_id) for track_id in new_ids]
-        self._lb.add_items(playlist_id, [track for track in jspf_tracks if track], position)
+            return AddTracksResult(added=0, already_present=already_present)
+        entries = [self._jspf_track(track_id) for track_id in new_ids]
+        self._lb.add_items(playlist_id, entries, position)
+        return AddTracksResult(added=len(entries), already_present=already_present)
 
     def remove_tracks(self, playlist_id: str, track_ids: List[str]) -> None:
         raw = self._lb.playlist(playlist_id)

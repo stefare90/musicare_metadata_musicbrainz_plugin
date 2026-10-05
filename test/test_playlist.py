@@ -164,7 +164,10 @@ def test_add_tracks_builds_jspf_entries_with_a_position(tmp_path):
 
     playlist, _, _ = _playlist(tmp_path, handler, post_handler)
 
-    playlist.add_tracks("pl-1", ["rec-1"], position=3)
+    result = playlist.add_tracks("pl-1", ["rec-1"], position=3)
+
+    assert result.added == 1
+    assert result.already_present == []
 
 
 def test_add_tracks_embeds_the_release_group_in_the_entry(tmp_path):
@@ -202,8 +205,10 @@ def test_add_tracks_skips_tracks_already_in_the_playlist(tmp_path):
 
     playlist, client, _ = _playlist(tmp_path, handler, lambda url, body: {})
 
-    playlist.add_tracks("pl-1", ["t1"])
+    result = playlist.add_tracks("pl-1", ["t1"])
 
+    assert result.added == 0
+    assert result.already_present == ["t1"]
     assert [body for kind, url, body in client.calls if kind == "post"] == []
 
 
@@ -220,8 +225,10 @@ def test_add_tracks_adds_only_the_new_tracks_and_keeps_the_position(tmp_path):
 
     playlist, client, _ = _playlist(tmp_path, handler, lambda url, body: {})
 
-    playlist.add_tracks("pl-1", ["t1", "t3"], position=2)
+    result = playlist.add_tracks("pl-1", ["t1", "t3"], position=2)
 
+    assert result.added == 1
+    assert result.already_present == ["t1"]
     posts = [body for kind, url, body in client.calls if kind == "post"]
     assert len(posts) == 1
     assert posts[0]["index"] == 2
@@ -239,11 +246,43 @@ def test_add_tracks_deduplicates_within_the_batch(tmp_path):
 
     playlist, client, _ = _playlist(tmp_path, handler, lambda url, body: {})
 
-    playlist.add_tracks("pl-1", ["t9", "t9"])
+    result = playlist.add_tracks("pl-1", ["t9", "t9"])
 
+    assert result.added == 1
+    assert result.already_present == ["t9"]
     posts = [body for kind, url, body in client.calls if kind == "post"]
     assert len(posts) == 1
     assert len(posts[0]["playlist"]["track"]) == 1
+
+
+def test_add_tracks_reports_every_occurrence_of_an_already_present_id(tmp_path):
+    def handler(url, params):
+        assert "playlist/pl-1" in url
+        return {
+            "playlist": {"track": [{"identifier": ["https://musicbrainz.org/recording/t1"]}]}
+        }
+
+    playlist, client, _ = _playlist(tmp_path, handler, lambda url, body: {})
+
+    result = playlist.add_tracks("pl-1", ["t1", "t1"])
+
+    assert result.added == 0
+    assert result.already_present == ["t1", "t1"]
+    assert [body for kind, url, body in client.calls if kind == "post"] == []
+
+
+def test_add_tracks_propagates_a_resolution_failure_without_writing(tmp_path):
+    def handler(url, params):
+        if "playlist/pl-1" in url:
+            return {"playlist": {"track": []}}
+        raise NotFoundError("recording gone")
+
+    playlist, client, _ = _playlist(tmp_path, handler, lambda url, body: {})
+
+    with pytest.raises(NotFoundError):
+        playlist.add_tracks("pl-1", ["t2"])
+
+    assert [body for kind, url, body in client.calls if kind == "post"] == []
 
 
 def test_remove_tracks_deletes_the_matching_indices_in_reverse(tmp_path):
