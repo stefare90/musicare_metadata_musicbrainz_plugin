@@ -73,8 +73,6 @@ class ListenBrainz:
             return {"user_id": None}
         return {"user_id": self.username()}
 
-    # --- playlist primitives -------------------------------------------------------
-
     def user_playlists(self, username: Optional[str] = None) -> List[Any]:
         data = self._client.get_json(
             f"{LISTENBRAINZ_API}user/{username or self.username()}/playlists",
@@ -182,8 +180,6 @@ class ListenBrainz:
         self._client.post_json(
             f"{LISTENBRAINZ_API}playlist/{mbid}/delete", headers=self._headers(required=True)
         )
-
-    # --- user data -----------------------------------------------------------------
 
     def feedback(self, username: str, count: int) -> List[Any]:
         data = self._client.get_json(

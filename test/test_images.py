@@ -81,7 +81,6 @@ def test_an_artist_without_an_image_is_an_empty_list_not_an_error():
     images, fake = _stack({"a1": ("Q1", None)})
 
     assert images.resolve(["a1"]) == {"a1": []}
-    # A genuine miss is cached: the second resolve must not call Wikidata again.
     images.resolve(["a1"])
     assert len(fake.calls) == 2
 

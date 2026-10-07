@@ -42,8 +42,6 @@ class MusicBrainzPlaylist(IPlaylist):
         self._client = client
         self._user = user
 
-    # --- reads ---------------------------------------------------------------------
-
     def _raw_playlist(self, id: str) -> Dict[str, Any]:
         if id.startswith("radio:"):
             return self._radio_metadata(id)
@@ -82,8 +80,6 @@ class MusicBrainzPlaylist(IPlaylist):
                         items.append(track)
         total = len(entries) if isinstance(entries, list) else 0
         return PaginatedResult(items=items, total=total, offset=offset, limit=limit)
-
-    # --- writes --------------------------------------------------------------------
 
     def create_playlist(
         self,
@@ -179,8 +175,6 @@ class MusicBrainzPlaylist(IPlaylist):
     def unsave(self, playlist_id: str) -> None:
         self._user.unsave_playlist(playlist_id)
 
-    # --- radio ---------------------------------------------------------------------
-
     @staticmethod
     def _radio_metadata(id: str) -> Dict[str, Any]:
         title, description = "Radio", "Algorithmic recommendation radio"
@@ -222,8 +216,6 @@ class MusicBrainzPlaylist(IPlaylist):
                         items.append(track)
         total = len(entries) if isinstance(entries, list) else 0
         return PaginatedResult(items=items, total=total, offset=offset, limit=limit)
-
-    # --- helpers -------------------------------------------------------------------
 
     def _track_ids(self, playlist_id: str) -> set:
         raw = self._lb.playlist(playlist_id)

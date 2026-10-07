@@ -53,8 +53,6 @@ class MusicBrainzUser(IUser):
     def me(self) -> Dict[str, Any]:
         return self._lb.me()
 
-    # --- saved tracks --------------------------------------------------------------
-
     def saved_tracks(self, offset: int = 0, limit: int = 20) -> PaginatedResult[Track]:
         self._lb.require_auth()
         feedback = self._lb.feedback(self._lb.username(), offset + limit)
@@ -98,8 +96,6 @@ class MusicBrainzUser(IUser):
             if isinstance(recording, dict)
         ]
 
-    # --- saved albums --------------------------------------------------------------
-
     def saved_albums(self, offset: int = 0, limit: int = 20) -> PaginatedResult[Album]:
         self._lb.require_auth()
         mbid = self._lb.get_or_create_playlist(SAVED_ALBUMS_PLAYLIST)
@@ -116,8 +112,6 @@ class MusicBrainzUser(IUser):
             if isinstance(data, dict):
                 items.append(build_album_from_release_group(data))
         return PaginatedResult(items=items, total=len(tracks), offset=offset, limit=limit)
-
-    # --- saved artists -------------------------------------------------------------
 
     def saved_artists(self, offset: int = 0, limit: int = 20) -> PaginatedResult[Artist]:
         self._lb.require_auth()
@@ -157,8 +151,6 @@ class MusicBrainzUser(IUser):
         return Artist(
             id=str(mbid), name=str(name), external_uri=external_uri("artist", str(mbid))
         )
-
-    # --- saved playlists -----------------------------------------------------------
 
     def saved_playlist_items(self) -> List[Playlist]:
         """Every playlist in the library, before pagination (search filters over this list).
@@ -235,8 +227,6 @@ class MusicBrainzUser(IUser):
             offset=offset,
             limit=limit,
         )
-
-    # --- library mutations ---------------------------------------------------------
 
     def save_track(self, id: str) -> None:
         self._lb.require_auth()
@@ -324,8 +314,6 @@ class MusicBrainzUser(IUser):
         if not playlist_mbid:
             return
         self._remove_matching(playlist_mbid, id)
-
-    # --- helpers -------------------------------------------------------------------
 
     @staticmethod
     def _feedback_release_mbid(entry: Dict[str, Any]) -> str:

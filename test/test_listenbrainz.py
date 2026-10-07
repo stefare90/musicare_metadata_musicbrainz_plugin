@@ -48,7 +48,6 @@ def test_changing_the_token_invalidates_the_username_cache(tmp_path):
     lb = ListenBrainz(client, credentials)
     assert lb.username() == "alice"
 
-    # Same service instance, another account: the token changes under it.
     client.handler = lambda url, params: (
         {"user_name": "bob"} if "validate-token" in url else {}
     )
