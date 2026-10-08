@@ -130,9 +130,11 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   `lb-radio` releases have one). The radio playlist itself carries no artwork (`images`
   empty) — a radio has none of its own; the host may build a mosaic from the tracks.
   JSPF entries carry the credited names packed in `creator` (`"A feat. B"`) next to
-  `artist_identifiers`: the parser splits the credit onto one `Artist` per identifier,
-  and keeps the full name when the counts do not line up (a duo credited as one artist
-  stays one entry).
+  `artist_identifiers`: entries with several identifiers resolve each name from its
+  MBID with one batched MusicBrainz search per playlist page (cached for the session),
+  so the split works in every language; the local conjunction split stays as the
+  fallback when the lookup fails or is partial, and a single identifier keeps the
+  full name (a duo credited as one artist stays one entry).
 - `search.playlists` has no public provider to call: ListenBrainz exposes no playlist text
   search. It filters the **user's saved playlists** locally, case insensitively, over both
   `name` and `description`, then paginates the filtered list (`total` is the filtered

@@ -73,8 +73,8 @@ def extract_duration_ms(track: Dict[str, Any]) -> int:
     return 0
 
 
-def extract_artists(track: Dict[str, Any]) -> List[Artist]:
-    creator = str(track.get("creator") or "Unknown Artist")
+def artist_mbids(track: Dict[str, Any]) -> List[str]:
+    """Artist MBIDs from a JSPF entry, in credit order."""
     mbids: List[str] = []
     extension = _extension(track)
     if extension:
@@ -84,8 +84,29 @@ def extract_artists(track: Dict[str, Any]) -> List[Artist]:
                 mbid = str(uri).rsplit("/", 1)[-1]
                 if mbid and mbid != "null":
                     mbids.append(mbid)
+    return mbids
+
+
+def extract_artists(
+    track: Dict[str, Any], artist_names: Optional[Dict[str, str]] = None
+) -> List[Artist]:
+    creator = str(track.get("creator") or "Unknown Artist")
+    mbids = artist_mbids(track)
     if not mbids:
         return [Artist(id="", name=creator, external_uri="")]
+    if len(mbids) > 1 and artist_names:
+        # Identifiers are the truth, the credit string is just a label: a lookup that
+        # covers every MBID wins over the split below, which cannot cover every
+        # language. Partial coverage falls through, so the page is never worse.
+        if all(artist_names.get(mbid) for mbid in mbids):
+            return [
+                Artist(
+                    id=mbid,
+                    name=str(artist_names[mbid]),
+                    external_uri=external_uri("artist", mbid),
+                )
+                for mbid in mbids
+            ]
     if len(mbids) > 1:
         # Use the split names only when they line up with the identifiers: a joint name
         # with a single MBID (a duo credited as one artist) keeps its full name.
@@ -172,7 +193,9 @@ def track_identifier(track: Dict[str, Any]) -> Optional[str]:
     return str(identifiers[0])
 
 
-def build_track(track: Dict[str, Any]) -> Optional[Track]:
+def build_track(
+    track: Dict[str, Any], artist_names: Optional[Dict[str, str]] = None
+) -> Optional[Track]:
     """Build a track from a JSPF entry, or ``None`` when it has no identifier."""
     identifier = track_identifier(track)
     if not identifier:
@@ -180,7 +203,7 @@ def build_track(track: Dict[str, Any]) -> Optional[Track]:
     track_id = identifier.rsplit("/", 1)[-1]
     title = str(track.get("title") or "Unknown Track")
     album_name = str(track.get("album") or "")
-    artists = extract_artists(track)
+    artists = extract_artists(track, artist_names)
     album_mbid = extract_album_mbid(track)
     album_images = extract_images(track, album_mbid)
 

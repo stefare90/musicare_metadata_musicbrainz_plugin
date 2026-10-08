@@ -156,3 +156,19 @@ def test_playlist_is_public_reads_the_playlist_extension():
     assert jspf.playlist_is_public(playlist({jspf.MB_PLAYLIST_EXTENSION: {}})) is False
     assert jspf.playlist_is_public(playlist({})) is False
     assert jspf.playlist_is_public({}) is False
+
+
+def test_artists_prefer_resolved_names_over_the_split():
+    artists = jspf.extract_artists(
+        _identified_creator("A con B", "a1", "a2"), {"a1": "A", "a2": "B"}
+    )
+
+    assert [(artist.id, artist.name) for artist in artists] == [("a1", "A"), ("a2", "B")]
+
+
+def test_artists_ignore_a_partial_name_map():
+    artists = jspf.extract_artists(
+        _identified_creator("A & B", "a1", "a2"), {"a1": "A"}
+    )
+
+    assert [artist.name for artist in artists] == ["A", "B"]

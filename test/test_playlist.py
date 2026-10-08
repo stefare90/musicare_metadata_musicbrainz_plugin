@@ -2,7 +2,7 @@
 
 import pytest
 
-from musicare_metadata_plugin_sdk import AuthRequiredError, NotFoundError
+from musicare_metadata_plugin_sdk import AuthRequiredError, NotFoundError, TransportError
 
 from src.credentials import Credentials
 from src.listenbrainz import ListenBrainz
@@ -339,3 +339,112 @@ def test_delete_playlist_makes_the_playlist_unreachable(tmp_path):
 
     with pytest.raises(NotFoundError):
         playlist.get_playlist("pl-1")
+
+
+def _identified_entry(track_id, creator, *mbids):
+    return {
+        "identifier": [f"https://musicbrainz.org/recording/{track_id}"],
+        "title": f"Song {track_id}",
+        "creator": creator,
+        "extension": {
+            MB_TRACK_EXTENSION: {
+                "artist_identifiers": [f"https://musicbrainz.org/artist/{mbid}" for mbid in mbids]
+            }
+        },
+    }
+
+
+def _packed_playlist(*entries):
+    return {"playlist": {"title": "Mix", "creator": "bob", "track": list(entries)}}
+
+
+def _resolving_handler(payload, artists_by_id=None, fail_lookup=False):
+    def handler(url, params):
+        if "musicbrainz.org/ws/2/artist/" in url:
+            if fail_lookup:
+                raise TransportError("musicbrainz down")
+            return {
+                "artists": [
+                    {"id": mbid, "name": name} for mbid, name in (artists_by_id or {}).items()
+                ]
+            }
+        return payload
+
+    return handler
+
+
+def _artist_lookups(client):
+    return [url for kind, url, _ in client.calls if "ws/2/artist/" in url]
+
+
+def test_tracks_resolve_packed_artists_from_their_mbids_in_one_lookup(tmp_path):
+    payload = _packed_playlist(
+        _identified_entry("t1", "Uno con Due", "u1", "u2"),
+        _identified_entry("t2", "Uno con Due", "u2", "u1"),
+    )
+    handler = _resolving_handler(payload, {"u1": "Uno", "u2": "Due"})
+    playlist, client, _ = _playlist(tmp_path, handler)
+
+    page = playlist.tracks("pl-1")
+
+    assert [artist.name for artist in page.items[0].artists] == ["Uno", "Due"]
+    assert [artist.name for artist in page.items[1].artists] == ["Due", "Uno"]
+    assert [artist.id for artist in page.items[0].artists] == ["u1", "u2"]
+    assert len(_artist_lookups(client)) == 1
+
+
+def test_tracks_fall_back_to_the_split_when_the_lookup_fails(tmp_path):
+    payload = _packed_playlist(_identified_entry("t1", "A & B", "a1", "a2"))
+    playlist, _, _ = _playlist(tmp_path, _resolving_handler(payload, fail_lookup=True))
+
+    page = playlist.tracks("pl-1")
+
+    assert [artist.name for artist in page.items[0].artists] == ["A", "B"]
+
+
+def test_tracks_fall_back_to_the_split_when_the_lookup_is_partial(tmp_path):
+    payload = _packed_playlist(_identified_entry("t1", "Uno con Due", "u1", "u2"))
+    playlist, _, _ = _playlist(tmp_path, _resolving_handler(payload, {"u1": "Uno"}))
+
+    page = playlist.tracks("pl-1")
+
+    assert [artist.name for artist in page.items[0].artists] == ["Uno con Due", "Uno con Due"]
+
+
+def test_tracks_make_no_artist_lookup_for_single_identifier_entries(tmp_path):
+    payload = _packed_playlist(_identified_entry("t1", "Primo & Squarta", "a1"))
+    playlist, client, _ = _playlist(tmp_path, _resolving_handler(payload, {"a1": "Primo"}))
+
+    page = playlist.tracks("pl-1")
+
+    assert [artist.name for artist in page.items[0].artists] == ["Primo & Squarta"]
+    assert _artist_lookups(client) == []
+
+
+def test_tracks_remember_resolved_names_for_the_session(tmp_path):
+    payload = _packed_playlist(_identified_entry("t1", "Uno con Due", "u1", "u2"))
+    handler = _resolving_handler(payload, {"u1": "Uno", "u2": "Due"})
+    playlist, client, _ = _playlist(tmp_path, handler)
+
+    playlist.tracks("pl-1")
+    page = playlist.tracks("pl-1")
+
+    assert [artist.name for artist in page.items[0].artists] == ["Uno", "Due"]
+    assert len(_artist_lookups(client)) == 1
+
+
+def test_radio_tracks_resolve_packed_artists_from_their_mbids(tmp_path):
+    radio = {
+        "payload": {
+            "jspf": {
+                "playlist": {
+                    "track": [_identified_entry("t9", "Uno con Due", "u1", "u2")]
+                }
+            }
+        }
+    }
+    playlist, _, _ = _playlist(tmp_path, _resolving_handler(radio, {"u1": "Uno", "u2": "Due"}))
+
+    page = playlist.tracks("radio:tag:chill")
+
+    assert [artist.name for artist in page.items[0].artists] == ["Uno", "Due"]

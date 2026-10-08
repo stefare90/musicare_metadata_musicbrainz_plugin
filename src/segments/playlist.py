@@ -31,6 +31,9 @@ from ..providers import (
 )
 
 _MOOD_TITLES = dict(MOOD_PLAYLISTS)
+# Artists per batched MusicBrainz name lookup: one search covers a whole playlist
+# page, and the URL stays around 2 KB.
+_MBID_LOOKUP_BATCH = 50
 LISTENBRAINZ_OWNER = User(
     id="listenbrainz", name="ListenBrainz", external_uri="https://listenbrainz.org"
 )
@@ -41,6 +44,7 @@ class MusicBrainzPlaylist(IPlaylist):
         self._lb = lb
         self._client = client
         self._user = user
+        self._artist_name_cache: Dict[str, str] = {}
 
     def _raw_playlist(self, id: str) -> Dict[str, Any]:
         if id.startswith("radio:"):
@@ -71,13 +75,14 @@ class MusicBrainzPlaylist(IPlaylist):
             return self._radio_tracks(id, offset, limit)
         raw = self._lb.playlist(id)
         entries = raw.get("track")
+        page = entries[offset : offset + limit] if isinstance(entries, list) else []
+        names = self._artist_names(page)
         items: List[Track] = []
-        if isinstance(entries, list):
-            for entry in entries[offset : offset + limit]:
-                if isinstance(entry, dict):
-                    track = jspf.build_track(entry)
-                    if track is not None:
-                        items.append(track)
+        for entry in page:
+            if isinstance(entry, dict):
+                track = jspf.build_track(entry, names)
+                if track is not None:
+                    items.append(track)
         total = len(entries) if isinstance(entries, list) else 0
         return PaginatedResult(items=items, total=total, offset=offset, limit=limit)
 
@@ -207,15 +212,60 @@ class MusicBrainzPlaylist(IPlaylist):
         data = self._lb.radio(prompt)
         playlist = ((data.get("payload") or {}).get("jspf") or {}).get("playlist")
         entries = playlist.get("track") if isinstance(playlist, dict) else None
+        page = entries[offset : offset + limit] if isinstance(entries, list) else []
+        names = self._artist_names(page)
         items: List[Track] = []
-        if isinstance(entries, list):
-            for entry in entries[offset : offset + limit]:
-                if isinstance(entry, dict):
-                    track = jspf.build_track(entry)
-                    if track is not None:
-                        items.append(track)
+        for entry in page:
+            if isinstance(entry, dict):
+                track = jspf.build_track(entry, names)
+                if track is not None:
+                    items.append(track)
         total = len(entries) if isinstance(entries, list) else 0
         return PaginatedResult(items=items, total=total, offset=offset, limit=limit)
+
+    def _artist_names(self, entries: List[Any]) -> Dict[str, str]:
+        """Resolve the credited names for a page of JSPF entries, in one batched lookup.
+
+        Only entries with several identifiers need a lookup: a single identifier keeps
+        its whole credit string by construction, so resolving it would add a request
+        per track for no visible change. Unknown MBIDs are fetched from MusicBrainz in
+        a single search per chunk and remembered for the session; a lookup failure
+        degrades to the local split, never to an error.
+        """
+        missing: List[str] = []
+        for entry in entries:
+            if not isinstance(entry, dict):
+                continue
+            mbids = jspf.artist_mbids(entry)
+            if len(mbids) < 2:
+                continue
+            for mbid in mbids:
+                if mbid not in self._artist_name_cache and mbid not in missing:
+                    missing.append(mbid)
+        for start in range(0, len(missing), _MBID_LOOKUP_BATCH):
+            chunk = missing[start : start + _MBID_LOOKUP_BATCH]
+            try:
+                data = self._client.get_json(
+                    f"{MUSICBRAINZ_API}artist/",
+                    params={
+                        "query": " OR ".join(f"arid:{mbid}" for mbid in chunk),
+                        "fmt": "json",
+                        "limit": len(chunk),
+                    },
+                )
+            except Exception:
+                break
+            artists = data.get("artists") if isinstance(data, dict) else None
+            if not isinstance(artists, list):
+                break
+            for artist in artists:
+                if not isinstance(artist, dict):
+                    continue
+                mbid = artist.get("id")
+                name = artist.get("name")
+                if mbid and name:
+                    self._artist_name_cache[str(mbid)] = str(name)
+        return dict(self._artist_name_cache)
 
     def _track_ids(self, playlist_id: str) -> set:
         raw = self._lb.playlist(playlist_id)
