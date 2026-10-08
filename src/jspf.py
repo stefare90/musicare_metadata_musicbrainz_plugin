@@ -7,6 +7,7 @@ here so playlists created by it still parse.
 """
 
 from typing import Any, Dict, List, Optional
+import re
 
 from musicare_metadata_plugin_sdk import Album, AlbumType, Artist, Image, Track
 
@@ -14,6 +15,12 @@ from .providers import cover_url, external_uri
 
 MB_TRACK_EXTENSION = "https://musicbrainz.org/doc/jspf#track"
 MB_PLAYLIST_EXTENSION = "https://musicbrainz.org/doc/jspf#playlist"
+# One creator may pack several credited names ("A feat. B", "A & B"); same
+# conjunctions as the YouTube plugin's `_ARTIST_SPLIT_PATTERN`.
+_ARTIST_SPLIT_PATTERN = re.compile(
+    r"\s*(?:\b(?:feat|ft|featuring|presents?|pres|vs|with|and|x)\b\.?|&|,|;|/|\|\+|×)\s*",
+    re.IGNORECASE,
+)
 _LENGTH_FIELDS = ("duration_ms", "length")
 _TOP_LEVEL_LENGTH_FIELDS = ("duration", "length")
 
@@ -68,7 +75,7 @@ def extract_duration_ms(track: Dict[str, Any]) -> int:
 
 def extract_artists(track: Dict[str, Any]) -> List[Artist]:
     creator = str(track.get("creator") or "Unknown Artist")
-    artists: List[Artist] = []
+    mbids: List[str] = []
     extension = _extension(track)
     if extension:
         identifiers = extension.get("artist_identifiers")
@@ -76,12 +83,26 @@ def extract_artists(track: Dict[str, Any]) -> List[Artist]:
             for uri in identifiers:
                 mbid = str(uri).rsplit("/", 1)[-1]
                 if mbid and mbid != "null":
-                    artists.append(
-                        Artist(id=mbid, name=creator, external_uri=external_uri("artist", mbid))
-                    )
-    if not artists:
-        artists.append(Artist(id="", name=creator, external_uri=""))
-    return artists
+                    mbids.append(mbid)
+    if not mbids:
+        return [Artist(id="", name=creator, external_uri="")]
+    if len(mbids) > 1:
+        # Use the split names only when they line up with the identifiers: a joint name
+        # with a single MBID (a duo credited as one artist) keeps its full name.
+        parts = [
+            cleaned
+            for raw in _ARTIST_SPLIT_PATTERN.split(creator)
+            if (cleaned := raw.strip().strip("()[]{}").strip())
+        ]
+        if len(parts) == len(mbids):
+            return [
+                Artist(id=mbid, name=name, external_uri=external_uri("artist", mbid))
+                for mbid, name in zip(mbids, parts)
+            ]
+    return [
+        Artist(id=mbid, name=creator, external_uri=external_uri("artist", mbid))
+        for mbid in mbids
+    ]
 
 
 def _first_mbid(value: Any) -> str:

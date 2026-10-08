@@ -107,6 +107,45 @@ def test_artists_fall_back_to_the_creator_name():
     assert artists[0].name == "Someone"
 
 
+def _identified_creator(creator, *mbids):
+    return {
+        "creator": creator,
+        "extension": {
+            MB_TRACK_EXTENSION: {
+                "artist_identifiers": [f"https://musicbrainz.org/artist/{mbid}" for mbid in mbids]
+            }
+        },
+    }
+
+
+def test_artists_split_a_packed_credit_over_the_identifiers():
+    artists = jspf.extract_artists(_identified_creator("Dela feat. J Sands", "a1", "a2"))
+
+    assert [(artist.id, artist.name) for artist in artists] == [("a1", "Dela"), ("a2", "J Sands")]
+    assert artists[0].external_uri == "https://musicbrainz.org/artist/a1"
+
+
+def test_artists_split_an_ampersand_credit():
+    artists = jspf.extract_artists(_identified_creator("Nome Uno & Nome Due", "a1", "a2"))
+
+    assert [artist.name for artist in artists] == ["Nome Uno", "Nome Due"]
+
+
+def test_artists_keep_a_joint_name_with_a_single_identifier():
+    artists = jspf.extract_artists(_identified_creator("Primo & Squarta", "a1"))
+
+    assert len(artists) == 1
+    assert artists[0].id == "a1"
+    assert artists[0].name == "Primo & Squarta"
+
+
+def test_artists_keep_the_full_credit_when_the_counts_do_not_match():
+    artists = jspf.extract_artists(_identified_creator("A & B & C", "a1", "a2"))
+
+    assert [artist.name for artist in artists] == ["A & B & C", "A & B & C"]
+    assert [artist.id for artist in artists] == ["a1", "a2"]
+
+
 def test_playlist_is_public_reads_the_playlist_extension():
     def playlist(extension):
         return {"title": "Mix", "extension": extension}

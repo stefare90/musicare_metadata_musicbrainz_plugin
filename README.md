@@ -129,6 +129,10 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   the parser reads, so covers come from the Cover Art Archive (about two thirds of
   `lb-radio` releases have one). The radio playlist itself carries no artwork (`images`
   empty) — a radio has none of its own; the host may build a mosaic from the tracks.
+  JSPF entries carry the credited names packed in `creator` (`"A feat. B"`) next to
+  `artist_identifiers`: the parser splits the credit onto one `Artist` per identifier,
+  and keeps the full name when the counts do not line up (a duo credited as one artist
+  stays one entry).
 - `search.playlists` has no public provider to call: ListenBrainz exposes no playlist text
   search. It filters the **user's saved playlists** locally, case insensitively, over both
   `name` and `description`, then paginates the filtered list (`total` is the filtered
