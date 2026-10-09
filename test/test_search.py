@@ -2,8 +2,8 @@
 
 from musicare_metadata_plugin_sdk import Artist, Image, SearchCategory
 
-from src.credentials import Credentials
-from src.listenbrainz import ListenBrainz
+from src.service import Credentials
+from src.service import ListenBrainz
 from src.segments.search import MusicBrainzSearch
 from src.segments.user import MusicBrainzUser
 

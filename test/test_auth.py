@@ -9,8 +9,8 @@ from musicare_metadata_plugin_sdk import (
     TransportError,
 )
 
-from src.credentials import Credentials
-from src.listenbrainz import ListenBrainz
+from src.service import Credentials
+from src.service import ListenBrainz
 from src.segments.auth import MusicBrainzAuth
 
 from ._stubs import StubClient

@@ -3,7 +3,7 @@
     "packageId": "musicare_metadata_musicbrainz_plugin",
     "type": "metadata",
     "name": "MusicBrainz & ListenBrainz",
-    "version": "2.0.2",
+    "version": "2.0.3",
     "pluginSdkVersion": "5.0.0",
     "author": "MusicAre Team",
     "description": "Metadata, recommendations and user library provided by MusicBrainz, ListenBrainz, Wikidata and Wikimedia.",

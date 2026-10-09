@@ -22,8 +22,8 @@ from musicare_metadata_plugin_sdk import (
     TransportError,
 )
 
-from ..credentials import Credentials
-from ..listenbrainz import ListenBrainz
+from ..service import Credentials
+from ..service import ListenBrainz
 
 _TOKEN_HELP_URL = "https://listenbrainz.org/profile/"
 _TOKEN_FORM_TITLE = "Connect to ListenBrainz"

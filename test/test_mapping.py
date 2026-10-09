@@ -2,7 +2,7 @@
 
 from musicare_metadata_plugin_sdk import AlbumType
 
-from src.mapping import (
+from src.shared.mapping import (
     build_album,
     build_album_from_release_group,
     build_artist,

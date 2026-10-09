@@ -1,6 +1,6 @@
 """JSPF parsing: durations, artists, album reference and images."""
 
-from src import jspf
+from src.shared import jspf
 
 MB_TRACK_EXTENSION = "https://musicbrainz.org/doc/jspf#track"
 

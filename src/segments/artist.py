@@ -20,15 +20,15 @@ from musicare_metadata_plugin_sdk import (
     TransportError,
 )
 
-from ..http import HttpClient
+from ..net import HttpClient
 from ..images.wikidata import WikidataArtistImages
-from ..listenbrainz import ListenBrainz
-from ..mapping import (
+from ..service import ListenBrainz
+from ..shared.mapping import (
     build_album_from_release_group,
     build_artist,
     build_popularity_track,
 )
-from ..providers import LISTENBRAINZ_LABS, MUSICBRAINZ_API
+from ..shared.providers import LISTENBRAINZ_LABS, MUSICBRAINZ_API
 
 # ListenBrainz Labs similarity algorithm, ported verbatim from the old plugin.
 _LABS_DAYS = 7500

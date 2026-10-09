@@ -4,8 +4,8 @@ import pytest
 
 from musicare_metadata_plugin_sdk import AuthRequiredError
 
-from src.credentials import Credentials
-from src.listenbrainz import ListenBrainz
+from src.service import Credentials
+from src.service import ListenBrainz
 from src.segments.track import MusicBrainzTrack
 
 from ._fixtures import recording_payload, release_payload

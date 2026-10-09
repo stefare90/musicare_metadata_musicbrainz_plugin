@@ -17,9 +17,9 @@ from musicare_metadata_plugin_sdk import (
     Track,
 )
 
-from ..http import HttpClient
-from ..mapping import build_album, build_track
-from ..providers import MUSICBRAINZ_API
+from ..net import HttpClient
+from ..shared.mapping import build_album, build_track
+from ..shared.providers import MUSICBRAINZ_API
 
 _RELEASE_INCLUDES = "artist-credits+recordings+release-groups"
 

@@ -19,10 +19,10 @@ from musicare_metadata_plugin_sdk import (
     Track,
 )
 
-from ..http import HttpClient
+from ..net import HttpClient
 from ..images.wikidata import WikidataArtistImages
-from ..mapping import build_album_from_release_group, build_artist, build_track
-from ..providers import MUSICBRAINZ_API
+from ..shared.mapping import build_album_from_release_group, build_artist, build_track
+from ..shared.providers import MUSICBRAINZ_API
 
 _AGGREGATE_LIMIT = 5
 

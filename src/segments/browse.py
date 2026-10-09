@@ -10,9 +10,9 @@ from typing import Any, List, Tuple
 
 from musicare_metadata_plugin_sdk import IBrowse, PaginatedResult, Playlist, Section, User
 
-from .. import jspf
-from ..listenbrainz import ListenBrainz
-from ..providers import LISTENBRAINZ_SITE, MOOD_PLAYLISTS
+from ..shared import jspf
+from ..service import ListenBrainz
+from ..shared.providers import LISTENBRAINZ_SITE, MOOD_PLAYLISTS
 
 LISTENBRAINZ_OWNER = User(
     id="listenbrainz", name="ListenBrainz", external_uri="https://listenbrainz.org"

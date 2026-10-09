@@ -22,8 +22,8 @@ from typing import Any, Dict, Iterable, List, Optional
 
 from musicare_metadata_plugin_sdk import Artist, Image
 
-from ..http import HttpClient
-from ..providers import WIKIDATA_API
+from ..net import HttpClient
+from ..shared.providers import WIKIDATA_API
 from . import wikimedia
 
 IMAGES_TIMEOUT = 5.0

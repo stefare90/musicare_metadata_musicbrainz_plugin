@@ -1,7 +1,7 @@
 """``IBrowse``: the home sections and their playlist items."""
 
-from src.credentials import Credentials
-from src.listenbrainz import ListenBrainz
+from src.service import Credentials
+from src.service import ListenBrainz
 from src.segments.browse import MusicBrainzBrowse
 
 from ._stubs import StubClient

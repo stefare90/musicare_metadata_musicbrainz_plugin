@@ -9,10 +9,10 @@ from typing import Any, Dict, List, Optional
 
 from musicare_metadata_plugin_sdk import ITrack, Track
 
-from ..http import HttpClient
-from ..listenbrainz import ListenBrainz
-from ..mapping import build_track, recording_artist_ids, recording_tag_names
-from ..providers import MUSICBRAINZ_API
+from ..net import HttpClient
+from ..service import ListenBrainz
+from ..shared.mapping import build_track, recording_artist_ids, recording_tag_names
+from ..shared.providers import MUSICBRAINZ_API
 
 _TRACK_INCLUDES = "artist-credits+releases+release-groups+isrcs"
 

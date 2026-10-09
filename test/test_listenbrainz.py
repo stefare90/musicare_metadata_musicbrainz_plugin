@@ -7,8 +7,8 @@ cannot serve the previous user's name (and library).
 
 from musicare_metadata_plugin_sdk import AuthContext
 
-from src.credentials import Credentials
-from src.listenbrainz import ListenBrainz
+from src.service import Credentials
+from src.service import ListenBrainz
 
 from ._stubs import StubClient
 
@@ -78,4 +78,21 @@ def test_a_rejected_token_is_not_cached(tmp_path):
     assert lb.username() == "listenbrainz"
     assert lb.username() == "listenbrainz"
 
+    assert _validations(client) == 2
+
+
+def test_the_cached_username_expires_after_a_day(tmp_path, monkeypatch):
+    clock = {"now": 1000.0}
+    monkeypatch.setattr("time.monotonic", lambda: clock["now"])
+    client = _client({"value": "alice"})
+    credentials, _ = _credentials(tmp_path, "token-a")
+    lb = ListenBrainz(client, credentials)
+
+    assert lb.username() == "alice"
+    clock["now"] += 23 * 3600
+    assert lb.username() == "alice"
+    assert _validations(client) == 1
+
+    clock["now"] += 2 * 3600
+    assert lb.username() == "alice"
     assert _validations(client) == 2

@@ -18,7 +18,7 @@ from musicare_metadata_plugin_sdk import (
     SearchCategory,
 )
 
-from src.http import HttpClient
+from src.net import HttpClient
 from src.images.wikidata import WikidataArtistImages
 from src.main import get_plugin
 

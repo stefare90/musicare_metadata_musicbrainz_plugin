@@ -20,12 +20,12 @@ from musicare_metadata_plugin_sdk import (
     User,
 )
 
-from .. import jspf
-from ..http import HttpClient
+from ..shared import jspf
+from ..net import HttpClient
 from ..images.wikidata import WikidataArtistImages
-from ..listenbrainz import ListenBrainz
-from ..mapping import build_album_from_release_group, build_artist, build_track
-from ..providers import (
+from ..service import ListenBrainz
+from ..shared.mapping import build_album_from_release_group, build_artist, build_track
+from ..shared.providers import (
     LISTENBRAINZ_SITE,
     MUSICBRAINZ_API,
     SAVED_ALBUMS_PLAYLIST,

@@ -39,12 +39,12 @@ plugin.json          # manifest (id, packageId, type, version, pluginSdkVersion,
 src/
 ├── main.py          # get_plugin() factory, called by the runtime
 ├── plugin.py        # wires the segments and exposes the interfaces
-├── http.py          # stdlib JSON client: certifi TLS, User-Agent, Retry-After, rate limit
-├── credentials.py   # the token shared between IAuth and IUser
-├── listenbrainz.py  # ListenBrainz service: token, library, playlists
-├── mapping.py       # MusicBrainz JSON -> SDK models
-├── jspf.py          # JSPF (ListenBrainz playlist format) -> Track
-├── providers.py     # endpoints and URI/cover conventions
+├── net/             # HTTP transport: stdlib client (certifi TLS, User-Agent,
+                     # Retry-After, X-RateLimit-*, throttles, keep-alive)
+├── service/         # ListenBrainz service: token, library, playlists
+├── shared/          # helpers every segment uses: payload mapping (mapping.py),
+                     # playlist documents (jspf.py), endpoints and URI/cover
+                     # conventions (providers.py)
 ├── images/          # Wikidata MediaWiki API (P434/P18) and Wikimedia Commons URLs
 └── segments/        # one module per interface: core, search, album, artist,
                      # track, playlist, user, auth, browse
@@ -224,8 +224,16 @@ only prompts for the token.
   a reachable provider that has no data is a legitimate empty, an unreachable or anomalous
   one is an error. This is why `related()` propagates instead of using a best-effort
   helper.
-- **`User-Agent`** identifies the plugin; **`Retry-After`** is honoured on 429/503 with up
-  to three attempts; MusicBrainz is throttled to one request per second.
+- **Server etiquette is measured, not assumed.** One request per second per host
+  (`musicbrainz.org`, `api`+`labs.api.listenbrainz.org`, `coverartarchive.org`);
+  `X-RateLimit-Reset-In`/`Retry-After` drive the backoff, an exhausted budget
+  (`Remaining: 0`) defers the next call, and a delay the budget cannot afford
+  surfaces immediately as `rate_limited`. Connections are reused per host
+  (stdlib keep-alive, ~0.1 s saved per request on desktop); the `User-Agent`
+  carries the shipped version. Measured 09/10/2026: MusicBrainz 503s come from
+  unthrottled bursts (never observed while throttled), ListenBrainz timeouts
+  with zero bytes are server-side (identical over a fresh connection), and the
+  budget headers above are sent by the providers on every response.
 - **Artist images come from the Wikidata MediaWiki API**, not from SPARQL: two calls
   resolve a whole page (`haswbstatement:P434=…|…` maps ids to entities, `wbgetentities`
   reads `P18`), measured at ~1 s against 5–30 s for the equivalent SPARQL query — which

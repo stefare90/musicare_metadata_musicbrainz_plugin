@@ -18,11 +18,11 @@ from musicare_metadata_plugin_sdk import (
     User,
 )
 
-from .. import jspf
-from ..http import HttpClient
-from ..listenbrainz import ListenBrainz
-from ..mapping import select_release
-from ..providers import (
+from ..shared import jspf
+from ..net import HttpClient
+from ..service import ListenBrainz
+from ..shared.mapping import select_release
+from ..shared.providers import (
     LISTENBRAINZ_SITE,
     MOOD_PLAYLISTS,
     MUSICBRAINZ_API,

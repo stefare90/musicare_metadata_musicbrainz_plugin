@@ -9,13 +9,19 @@ username and every call that needs the token; the ``user``, ``playlist``, ``brow
 
 from typing import Any, Dict, List, Optional
 
+import time
+
 from musicare_metadata_plugin_sdk import AuthRequiredError
 
 from .credentials import Credentials
-from .http import HttpClient
-from .providers import LISTENBRAINZ_API
+from ..net import HttpClient
+from ..shared.providers import LISTENBRAINZ_API
 
 _FEEDBACK_SCORE = {True: 1, False: 0}
+
+# A validated username stays trusted for a day: the daemon lives longer than a
+# session, and an account deleted server-side must surface within a reasonable time.
+USERNAME_TTL = 24 * 3600.0
 
 
 class ListenBrainz:
@@ -24,6 +30,7 @@ class ListenBrainz:
         self._credentials = credentials
         self._cached_token = ""
         self._cached_username = ""
+        self._cached_at = 0.0
 
     @property
     def token(self) -> str:
@@ -58,13 +65,18 @@ class ListenBrainz:
         unchanged token keeps the cache with no extra ``validate-token`` call.
         """
         token = self._credentials.token
-        if token and token == self._cached_token:
+        if (
+            token
+            and token == self._cached_token
+            and time.monotonic() - self._cached_at < USERNAME_TTL
+        ):
             return self._cached_username
         if self._credentials.is_authenticated:
             name = self.validate_token(token)
             if name:
                 self._cached_token = token
                 self._cached_username = name
+                self._cached_at = time.monotonic()
                 return name
         return "listenbrainz"
 

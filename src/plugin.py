@@ -18,10 +18,10 @@ from musicare_metadata_plugin_sdk import (
     IUser,
 )
 
-from .credentials import Credentials
-from .http import HttpClient
+from .service import Credentials
+from .net import HttpClient, user_agent_for
 from .images.wikidata import WikidataArtistImages
-from .listenbrainz import ListenBrainz
+from .service import ListenBrainz
 from .segments.album import MusicBrainzAlbum
 from .segments.artist import MusicBrainzArtist
 from .segments.auth import MusicBrainzAuth
@@ -34,12 +34,13 @@ from .segments.user import MusicBrainzUser
 
 PLUGIN_ID = "org.musicare.metadata.musicbrainz"
 PLUGIN_NAME = "MusicBrainz & ListenBrainz"
-PLUGIN_VERSION = "2.0.2"
+PLUGIN_VERSION = "2.0.3"
+USER_AGENT = user_agent_for(PLUGIN_VERSION)
 
 
 class MusicBrainzPlugin(BaseMetadataPlugin):
     def __init__(self) -> None:
-        client = HttpClient()
+        client = HttpClient(user_agent=USER_AGENT)
         credentials = Credentials()
         images = WikidataArtistImages(client)
         listenbrainz = ListenBrainz(client, credentials)
