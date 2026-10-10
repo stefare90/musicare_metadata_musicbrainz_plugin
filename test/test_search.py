@@ -45,23 +45,159 @@ def test_chips_declare_the_four_supported_categories():
     ]
 
 
-def test_tracks_reads_recordings_and_the_total_count():
+def test_tracks_boost_the_title_over_the_artist():
     search, client = _search(
-        router({"recording": {"count": 42, "recordings": [recording_payload(releases=[])]}})
+        router({"recording": {"count": 1, "recordings": [recording_payload(releases=[])]}})
     )
 
-    page = search.tracks("radiohead", offset=5, limit=10)
+    page = search.tracks("radiohead", offset=0, limit=10)
 
-    assert page.total == 42
-    assert page.offset == 5
+    assert page.total == 1
+    assert page.offset == 0
     assert page.limit == 10
     assert [track.id for track in page.items] == ["recording-1"]
     assert client.calls[0][2] == {
-        "query": "radiohead",
-        "limit": 10,
-        "offset": 5,
+        "query": "recording:(radiohead)^4 OR artist:(radiohead)",
+        "limit": 100,
+        "offset": 0,
         "fmt": "json",
     }
+
+
+def test_tracks_join_multiple_words_with_and_and_still_boost_the_title():
+    search, client = _search(
+        router({"recording": {"count": 2, "recordings": [recording_payload(releases=[])]}})
+    )
+
+    search.tracks("Vivo Fabri Fibra")
+
+    assert client.calls[0][2]["query"] == (
+        "recording:(Vivo AND Fabri AND Fibra)^4 OR (Vivo AND Fabri AND Fibra)"
+    )
+
+
+def test_tracks_escape_lucene_special_chars_before_building_the_query():
+    search, client = _search(router({"recording": {"count": 0, "recordings": []}}))
+
+    search.tracks("AC/DC")
+
+    assert client.calls[0][2]["query"] == r"recording:(AC\/DC)^4 OR artist:(AC\/DC)"
+
+
+def test_tracks_fall_back_to_the_raw_query_when_the_weighted_one_is_empty():
+    calls = []
+
+    def handler(url, params):
+        calls.append(params["query"])
+        if len(calls) == 1:
+            return {"count": 0, "recordings": []}
+        return {"count": 1, "recordings": [recording_payload(releases=[])]}
+
+    search, _ = _search(handler)
+
+    page = search.tracks("Vivo Fabri Fibra")
+
+    assert calls == [
+        "recording:(Vivo AND Fabri AND Fibra)^4 OR (Vivo AND Fabri AND Fibra)",
+        "Vivo Fabri Fibra",
+    ]
+    assert [track.id for track in page.items] == ["recording-1"]
+
+
+def test_tracks_do_not_fall_back_for_a_single_word_or_a_non_empty_result():
+    search, client = _search(
+        router({"recording": {"count": 0, "recordings": []}})
+    )
+    search.tracks("radiohead")
+    assert len(client.calls) == 1
+
+    search, client = _search(
+        router({"recording": {"count": 3, "recordings": []}})
+    )
+    search.tracks("Vivo Fabri Fibra")
+    assert len(client.calls) == 1
+
+
+def test_tracks_leave_an_empty_query_untouched():
+    search, client = _search(router({"recording": {"count": 0, "recordings": []}}))
+
+    search.tracks("")
+
+    assert client.calls[0][2]["query"] == ""
+
+
+def _vivo_page(*tunes):
+    return {
+        "count": len(tunes),
+        "recordings": [
+            recording_payload(recording_id=f"r{i}", title=title, artist_name=artist)
+            for i, (title, artist) in enumerate(tunes)
+        ],
+    }
+
+
+def test_tracks_rank_the_exact_title_first():
+    search, _ = _search(
+        router(
+            {
+                "recording": _vivo_page(
+                    ("Pescao vivo", "Pescao Vivo"),
+                    ("Vivo, vivo", "Los Especialistas"),
+                    ("Vivo", "Luca Barbarossa"),
+                    ("Respire", "Vivo"),
+                )
+            }
+        )
+    )
+
+    page = search.tracks("vivo")
+
+    assert [(track.name, track.artists[0].name) for track in page.items] == [
+        ("Vivo", "Luca Barbarossa"),
+        ("Pescao vivo", "Pescao Vivo"),
+        ("Vivo, vivo", "Los Especialistas"),
+        ("Respire", "Vivo"),
+    ]
+
+
+def test_tracks_rank_a_split_title_artist_match_before_a_partial_one():
+    search, _ = _search(
+        router(
+            {
+                "recording": _vivo_page(
+                    ("Story: Fabri Fibra", "Fabri Fibra"),
+                    ("Vivo", "Fabri Fibra"),
+                )
+            }
+        )
+    )
+
+    page = search.tracks("Vivo Fabri Fibra")
+
+    assert [(track.name, track.artists[0].name) for track in page.items] == [
+        ("Vivo", "Fabri Fibra"),
+        ("Story: Fabri Fibra", "Fabri Fibra"),
+    ]
+
+
+def test_tracks_keep_the_provider_order_inside_a_tier():
+    search, _ = _search(
+        router(
+            {
+                "recording": _vivo_page(
+                    ("Vivo", "Luca Barbarossa"),
+                    ("Vivo", "Renato Zero"),
+                )
+            }
+        )
+    )
+
+    page = search.tracks("vivo")
+
+    assert [track.artists[0].name for track in page.items] == [
+        "Luca Barbarossa",
+        "Renato Zero",
+    ]
 
 
 def test_albums_read_release_groups():
@@ -140,6 +276,43 @@ def test_playlists_without_a_token_use_the_public_account():
     assert not any("validate-token" in url for url in urls)
 
 
+def test_all_fetches_deeper_and_returns_the_reranked_top_ten():
+    search, client = _search(
+        router(
+            {
+                "recording": _vivo_page(
+                    ("Pescao vivo", "Pescao Vivo"),
+                    ("Vivo, vivo", "Los Especialistas"),
+                    ("Vivo", "Luca Barbarossa"),
+                    ("Vivo", "Renato Zero"),
+                    ("Vivo", "Gustavo Cerati"),
+                    ("Vivo", "Piero Pelù"),
+                    ("Respire", "Vivo"),
+                ),
+                "release-group": {"count": 1, "release-groups": [release_group_payload()]},
+                "artist": {"count": 1, "artists": [artist_payload()]},
+                "user/listenbrainz/playlists": {"playlists": []},
+            }
+        )
+    )
+
+    response = search.all("vivo")
+
+    assert [(track.name, track.artists[0].name) for track in response.tracks] == [
+        ("Vivo", "Luca Barbarossa"),
+        ("Vivo", "Renato Zero"),
+        ("Vivo", "Gustavo Cerati"),
+        ("Vivo", "Piero Pelù"),
+        ("Pescao vivo", "Pescao Vivo"),
+        ("Vivo, vivo", "Los Especialistas"),
+        ("Respire", "Vivo"),
+    ]
+    recording_limits = [
+        call[2]["limit"] for call in client.calls if call[1].endswith("recording")
+    ]
+    assert recording_limits == [100]
+
+
 def test_all_includes_up_to_five_playlists():
     playlists = [
         _playlist(f"Weekly {index}", f"https://listenbrainz.org/playlist/p{index}")
@@ -162,4 +335,74 @@ def test_all_includes_up_to_five_playlists():
     assert [album.id for album in response.albums] == ["rg:group-1"]
     assert [artist.id for artist in response.artists] == [ARTIST_MBID]
     assert len(response.playlists) == 5
-    assert [call[2]["limit"] for call in client.calls if isinstance(call[2], dict)] == [5, 5, 5]
+    assert [call[2]["limit"] for call in client.calls if isinstance(call[2], dict)] == [100, 5, 5]
+
+
+def test_tracks_serve_later_pages_from_the_same_pool():
+    search, client = _search(
+        router(
+            {
+                "recording": _vivo_page(
+                    ("Pescao vivo", "Pescao Vivo"),
+                    ("Vivo, vivo", "Los Especialistas"),
+                    ("Vivo", "Luca Barbarossa"),
+                    ("Vivo", "Renato Zero"),
+                    ("Respire", "Vivo"),
+                )
+            }
+        )
+    )
+
+    first = search.tracks("vivo", offset=0, limit=2)
+    second = search.tracks("vivo", offset=2, limit=2)
+
+    assert [track.name for track in first.items] == ["Vivo", "Vivo"]
+    assert [(track.name, track.artists[0].name) for track in second.items] == [
+        ("Pescao vivo", "Pescao Vivo"),
+        ("Vivo, vivo", "Los Especialistas"),
+    ]
+    assert len(client.calls) == 1
+
+
+def test_tracks_beyond_the_pool_serve_the_provider_page():
+    first = _vivo_page(
+        ("Pescao vivo", "Pescao Vivo"),
+        ("Vivo, vivo", "Los Especialistas"),
+        ("Vivo", "Luca Barbarossa"),
+    )
+    first["count"] = 5
+    second = _vivo_page(
+        ("Respire", "Vivo"),
+        ("Vivo", "Renato Zero"),
+    )
+    second["count"] = 5
+
+    def handler(url, params):
+        return second if params["offset"] >= 3 else first
+
+    search, client = _search(handler)
+
+    page = search.tracks("vivo", offset=3, limit=2)
+
+    assert [(track.name, track.artists[0].name) for track in page.items] == [
+        ("Vivo", "Renato Zero"),
+        ("Respire", "Vivo"),
+    ]
+    assert [call[2]["offset"] for call in client.calls] == [3]
+
+
+def test_tracks_beyond_the_last_result_serve_an_empty_page():
+    payload = {"count": 500, "recordings": [recording_payload(releases=[])]}
+
+    def handler(url, params):
+        if params["offset"] >= 1:
+            return {"count": 500, "recordings": []}
+        return payload
+
+    search, client = _search(handler)
+
+    page = search.tracks("vivo", offset=100, limit=20)
+
+    assert page.items == []
+    assert page.total == 500
+    assert len(client.calls) == 1
