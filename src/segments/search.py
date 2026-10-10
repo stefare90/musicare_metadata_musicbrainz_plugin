@@ -171,7 +171,7 @@ class MusicBrainzSearch(ISearch):
         )
 
     def all(self, query: str) -> SearchResponse:
-        tracks = self.tracks(query, limit=_POOL_SIZE)
+        tracks = self.tracks(query, limit=_ALL_TRACKS_LIMIT)
         albums = self.albums(query, limit=_AGGREGATE_LIMIT)
         artists = self.artists(query, limit=_AGGREGATE_LIMIT)
         playlists = self.playlists(query, limit=_AGGREGATE_LIMIT)
@@ -179,5 +179,5 @@ class MusicBrainzSearch(ISearch):
             albums=albums.items,
             artists=artists.items,
             playlists=playlists.items,
-            tracks=tracks.items[:_ALL_TRACKS_LIMIT],
+            tracks=tracks.items,
         )
