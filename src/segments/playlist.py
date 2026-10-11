@@ -92,7 +92,6 @@ class MusicBrainzPlaylist(IPlaylist):
         name: str,
         description: Optional[str] = None,
         public: Optional[bool] = None,
-        collaborative: Optional[bool] = None,
     ) -> Optional[Playlist]:
         mbid = self._lb.create_playlist(
             name, description or "Created by MusicAre Plugin", bool(public)
@@ -108,7 +107,6 @@ class MusicBrainzPlaylist(IPlaylist):
                 external_uri=f"{LISTENBRAINZ_SITE}user/{user_id}",
             ),
             images=[],
-            collaborative=bool(collaborative),
             is_public=bool(public),
         )
 
@@ -118,7 +116,6 @@ class MusicBrainzPlaylist(IPlaylist):
         name: Optional[str] = None,
         description: Optional[str] = None,
         public: Optional[bool] = None,
-        collaborative: Optional[bool] = None,
     ) -> None:
         raw = self._raw_playlist(playlist_id)
         if not raw:
