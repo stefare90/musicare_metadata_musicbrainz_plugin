@@ -27,6 +27,7 @@ from ..shared.mapping import (
     build_album_from_release_group,
     build_artist,
     build_popularity_track,
+    discography_sort_key,
 )
 from ..shared.providers import LISTENBRAINZ_LABS, MUSICBRAINZ_API
 
@@ -40,6 +41,12 @@ _LABS_FILTER = True
 _LABS_SKIP = 30
 # Similar artists resolve one MusicBrainz lookup per item; cap that fan-out.
 _RELATED_BUDGET_SECONDS = 15.0
+
+# MusicBrainz browse caps pages at 100; the discography is fetched whole so the
+# date-descending order holds across the contract's paginated slices.
+_DISCOGRAPHY_FETCH = 100
+# Artists whose (already sorted) discography is kept to serve pagination without refetching.
+_DISCOGRAPHY_BUFFERED_ARTISTS = 8
 
 # "Popular tracks" is the top of the ranking, not the artist's whole catalogue.
 _POPULAR_MAX = 50
@@ -86,6 +93,8 @@ class MusicBrainzArtist(IArtist):
         self._user = user
         self._popular: Dict[str, List[Track]] = {}
         self._popular_order: List[str] = []
+        self._discography: Dict[str, List[Album]] = {}
+        self._discography_order: List[str] = []
 
     def _fetch_artist(self, mbid: str) -> Dict[str, Any]:
         return self._client.get_json(
@@ -98,30 +107,58 @@ class MusicBrainzArtist(IArtist):
         return build_artist(data, images)
 
     def albums(self, id: str, offset: int = 0, limit: int = 20) -> PaginatedResult[Album]:
-        data = self._client.get_json(
-            f"{MUSICBRAINZ_API}release-group",
-            params={
-                "artist": id,
-                "type": "album",
-                "limit": limit,
-                "offset": offset,
-                "inc": "artist-credits",
-                "fmt": "json",
-            },
+        albums = self._discography.get(id)
+        if albums is None:
+            albums = self._discography_albums(id)
+            self._discography[id] = albums
+            self._discography_order.append(id)
+            while len(self._discography_order) > _DISCOGRAPHY_BUFFERED_ARTISTS:
+                self._discography.pop(self._discography_order.pop(0), None)
+        return PaginatedResult(
+            items=albums[offset : offset + limit],
+            total=len(albums),
+            offset=offset,
+            limit=limit,
         )
-        items: List[Album] = []
-        if isinstance(data, dict):
-            for group in data.get("release-groups") or []:
-                if isinstance(group, dict):
-                    items.append(build_album_from_release_group(group))
-        total = len(items)
-        if isinstance(data, dict):
-            raw_total = data.get("release-group-count")
-            if not isinstance(raw_total, int):
-                raw_total = data.get("count")
-            if isinstance(raw_total, int):
-                total = raw_total
-        return PaginatedResult(items=items, total=total, offset=offset, limit=limit)
+
+    def _discography_albums(self, id: str) -> List[Album]:
+        # The browse endpoint answers in provider order and takes no ordering parameter,
+        # so every page is fetched and the whole discography is sorted newest-first once;
+        # slicing a per-page sort instead would shuffle releases across page boundaries.
+        groups: List[Dict[str, Any]] = []
+        expected: Optional[int] = None
+        fetched = 0
+        while True:
+            data = self._client.get_json(
+                f"{MUSICBRAINZ_API}release-group",
+                params={
+                    "artist": id,
+                    "type": "album",
+                    "limit": _DISCOGRAPHY_FETCH,
+                    "offset": fetched,
+                    "inc": "artist-credits",
+                    "fmt": "json",
+                },
+            )
+            page = []
+            if isinstance(data, dict):
+                if expected is None:
+                    raw_total = data.get("release-group-count")
+                    if not isinstance(raw_total, int):
+                        raw_total = data.get("count")
+                    if isinstance(raw_total, int):
+                        expected = raw_total
+                for group in data.get("release-groups") or []:
+                    if isinstance(group, dict):
+                        page.append(group)
+            if not page:
+                break
+            groups.extend(page)
+            fetched += len(page)
+            if expected is not None and fetched >= expected:
+                break
+        groups.sort(key=discography_sort_key)
+        return [build_album_from_release_group(group) for group in groups]
 
     def top_tracks(self, id: str, offset: int = 0, limit: int = 20) -> PaginatedResult[Track]:
         tracks = self._popular_tracks(id)

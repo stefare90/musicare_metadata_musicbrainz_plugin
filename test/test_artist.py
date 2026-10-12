@@ -60,14 +60,109 @@ def test_get_artist_merges_genres_and_images():
     assert artist.images[0].url == "https://img"
 
 
-def test_albums_reads_the_release_group_total():
+def _discography_handler(groups, count=None):
+    total = len(groups) if count is None else count
+
     def handler(url, params):
-        return {"release-group-count": 9, "release-groups": [release_group_payload()]}
+        offset = (params or {}).get("offset", 0)
+        limit = (params or {}).get("limit", 100)
+        return {
+            "release-group-count": total,
+            "release-groups": groups[offset : offset + limit],
+        }
 
-    page = _artist(StubClient(handler)).albums("artist-1")
+    return handler
 
-    assert page.total == 9
-    assert page.items[0].id == "rg:group-1"
+
+def test_albums_are_ordered_newest_first_with_undated_last():
+    groups = [
+        release_group_payload(group_id="g-old", title="Old", date="1997-05-28"),
+        release_group_payload(group_id="g-undated", title="Undated", date=""),
+        release_group_payload(group_id="g-new", title="New", date="2016-05-08"),
+        release_group_payload(group_id="g-year", title="Year Only", date="2000"),
+        release_group_payload(group_id="g-month", title="Month", date="2000-06"),
+        release_group_payload(group_id="g-bogus", title="Bogus", date="unknown"),
+    ]
+    client = StubClient(_discography_handler(groups))
+
+    page = _artist(client).albums("artist-1")
+
+    assert [album.name for album in page.items] == [
+        "New",
+        "Year Only",
+        "Month",
+        "Old",
+        "Bogus",
+        "Undated",
+    ]
+    assert (page.total, page.offset, page.limit) == (6, 0, 20)
+
+
+def test_albums_tie_break_is_stable_by_title_then_id():
+    groups = [
+        release_group_payload(group_id="g-b", title="Same", date="2000-01-01"),
+        release_group_payload(group_id="g-a", title="Same", date="2000-01-01"),
+        release_group_payload(group_id="g-c", title="Beta", date="2000-01-01"),
+        release_group_payload(group_id="g-d", title="alpha", date="2000-01-01"),
+    ]
+    page = _artist(StubClient(_discography_handler(groups))).albums("artist-1")
+
+    assert [(album.name, album.id) for album in page.items] == [
+        ("alpha", "rg:g-d"),
+        ("Beta", "rg:g-c"),
+        ("Same", "rg:g-a"),
+        ("Same", "rg:g-b"),
+    ]
+
+
+def test_albums_paginate_from_the_sorted_discography():
+    groups = [
+        release_group_payload(group_id=f"g-{n}", title=f"Album {n}", date=f"200{n}-01-01")
+        for n in range(10)
+    ]
+    client = StubClient(_discography_handler(groups))
+    artist = _artist(client)
+
+    first = artist.albums("artist-1", offset=0, limit=4)
+    second = artist.albums("artist-1", offset=4, limit=4)
+
+    assert [album.name for album in first.items] == [
+        "Album 9",
+        "Album 8",
+        "Album 7",
+        "Album 6",
+    ]
+    assert [album.name for album in second.items] == [
+        "Album 5",
+        "Album 4",
+        "Album 3",
+        "Album 2",
+    ]
+    assert first.total == 10
+    assert len(client.calls) == 1
+
+
+def test_albums_fetch_every_provider_page_before_sorting(monkeypatch):
+    import src.segments.artist as artist_module
+
+    monkeypatch.setattr(artist_module, "_DISCOGRAPHY_FETCH", 2)
+    groups = [
+        release_group_payload(group_id=f"g-{n}", title=f"Album {n}", date=f"200{n}-01-01")
+        for n in range(5)
+    ]
+    client = StubClient(_discography_handler(groups))
+
+    page = _artist(client).albums("artist-1")
+
+    assert [album.name for album in page.items] == [
+        "Album 4",
+        "Album 3",
+        "Album 2",
+        "Album 1",
+        "Album 0",
+    ]
+    assert page.total == 5
+    assert len(client.calls) == 3
 
 
 def test_top_tracks_rank_by_listen_count_and_paginate(tmp_path):

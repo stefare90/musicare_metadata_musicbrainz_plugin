@@ -144,6 +144,33 @@ def select_release(releases: Any, release_mbid: Optional[str] = None) -> Optiona
     return min(candidates, key=_release_rank)
 
 
+def discography_sort_key(group: Dict[str, Any]) -> tuple:
+    """Order key for an artist's discography: newest release first.
+
+    MusicBrainz browse answers in provider order (neither dated nor alphabetical) and
+    ignores ordering parameters, so the plugin sorts locally. A missing month or day
+    counts as the end of its period, same as :func:`_release_date_key`; a missing or
+    unparsable date sorts after every dated release, ordered by title. The title and id
+    tie-breaks keep the order stable when several releases share a date.
+    """
+    parts = str(group.get("first-release-date") or "").strip().split("-")
+    try:
+        year = int(parts[0])
+    except (ValueError, IndexError):
+        year = None
+    if year is None:
+        date_key = None
+    else:
+        month = int(parts[1]) if len(parts) > 1 and parts[1].isdigit() else 12
+        day = int(parts[2]) if len(parts) > 2 and parts[2].isdigit() else 31
+        date_key = (year, month, day)
+    title = str(group.get("title") or "").lower()
+    group_id = str(group.get("id") or "")
+    if date_key is None:
+        return (1, 0, 0, 0, title, group_id)
+    return (0, -date_key[0], -date_key[1], -date_key[2], title, group_id)
+
+
 def _cover_images(prefix: str, mbid: str, sizes: Iterable[int]) -> List[Image]:
     return [Image(url=cover_url(prefix, mbid, size), width=size, height=size) for size in sizes]
 

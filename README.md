@@ -115,6 +115,15 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   Signed out it raises `auth_required` (the ranking only exists with a token); a reachable
   service that knows no listens answers `[]`, a legitimate empty. An unreachable service
   is a retryable error.
+- `artist.albums` ("Discography") is ordered **newest release first**. The browse endpoint
+  answers in provider order and takes no ordering parameter, so the whole discography is
+  fetched (pages of 100 up to the reported count), sorted once by `first-release-date`
+  descending and sliced per the contract's `offset`/`limit` with the full count kept as
+  `total`. A missing month or day counts as the end of its period (the same convention
+  `select_release` uses); releases with no (or unparsable) date come last, ordered by
+  title; ties break by title, then id, so the order is stable across pages. The sorted
+  discography is buffered in memory per artist (bounded to the last 8, like Popular
+  tracks) so scrolling does not refetch.
 - `artist.related` ("Fans Also Like") uses the ListenBrainz Labs similarity endpoint; each
   suggestion needs a MusicBrainz lookup, so the fan-out is capped by a 15 s budget and a
   partial page is returned rather than stalling the caller. It is a **visible section**, so
