@@ -198,6 +198,92 @@ def test_saved_artists_creates_the_playlist_then_falls_back_to_stats(tmp_path):
     assert _posts(client, "playlist/create")
 
 
+def test_saved_artists_resolves_the_page_with_a_single_batched_lookup(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "__GYAWUN_ARTISTS__",
+                            "identifier": "https://listenbrainz.org/playlist/art",
+                        }
+                    }
+                ]
+            }
+        if "playlist/art" in url:
+            return {
+                "playlist": {
+                    "track": [
+                        {"identifier": ["https://musicbrainz.org/recording/a1"]},
+                        {"identifier": ["https://musicbrainz.org/recording/a2"]},
+                        {"identifier": ["https://musicbrainz.org/recording/a3"]},
+                    ]
+                }
+            }
+        if url.endswith("/artist/"):
+            assert params["limit"] == 3
+            return {
+                "artists": [
+                    {"id": "a3", "name": "Three"},
+                    {"id": "a2", "name": "Two"},
+                    {"id": "a1", "name": "One"},
+                ]
+            }
+        raise AssertionError(url)
+
+    user, client, _ = _user(tmp_path, handler)
+
+    page = user.saved_artists()
+
+    assert [artist.id for artist in page.items] == ["a1", "a2", "a3"]
+    assert [artist.name for artist in page.items] == ["One", "Two", "Three"]
+    lookups = [params for kind, url, params in client.calls if url.endswith("/artist/")]
+    assert len(lookups) == 1
+    assert lookups[0]["query"] == "arid:a1 OR arid:a2 OR arid:a3"
+    assert not any(
+        kind == "get" and "/artist/a" in url for kind, url, _ in client.calls
+    )
+
+
+def test_saved_artists_drops_the_ids_missing_from_the_batch(tmp_path):
+    def handler(url, params):
+        if "validate-token" in url:
+            return {"user_name": "tester"}
+        if "user/tester/playlists" in url:
+            return {
+                "playlists": [
+                    {
+                        "playlist": {
+                            "title": "__GYAWUN_ARTISTS__",
+                            "identifier": "https://listenbrainz.org/playlist/art",
+                        }
+                    }
+                ]
+            }
+        if "playlist/art" in url:
+            return {
+                "playlist": {
+                    "track": [
+                        {"identifier": ["https://musicbrainz.org/recording/a1"]},
+                        {"identifier": ["https://musicbrainz.org/recording/a2"]},
+                    ]
+                }
+            }
+        if url.endswith("/artist/"):
+            return {"artists": [{"id": "a1", "name": "One"}]}
+        raise AssertionError(url)
+
+    user, _, _ = _user(tmp_path, handler)
+
+    page = user.saved_artists()
+
+    assert [artist.id for artist in page.items] == ["a1"]
+    assert page.total == 2
+
+
 def test_saved_playlists_filters_the_hidden_playlists(tmp_path):
     def handler(url, params):
         if "validate-token" in url:

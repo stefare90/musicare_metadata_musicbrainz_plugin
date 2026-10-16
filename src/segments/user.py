@@ -35,6 +35,7 @@ from ..shared.providers import (
 )
 
 _RECORDING_INCLUDES = "artist-credits+releases+release-groups+isrcs"
+_ARTIST_LOOKUP_BATCH = 50
 _HIDDEN_PLAYLISTS = (SAVED_ALBUMS_PLAYLIST, SAVED_ARTISTS_PLAYLIST, SAVED_PLAYLISTS_PLAYLIST)
 
 
@@ -118,16 +119,13 @@ class MusicBrainzUser(IUser):
         mbid = self._lb.get_or_create_playlist(SAVED_ARTISTS_PLAYLIST)
         tracks = self._playlist_tracks(mbid)
         total = len(tracks)
-        items: List[Artist] = []
-        for track in tracks[offset : offset + limit]:
-            artist_mbid = self._track_mbid(track)
-            if not artist_mbid:
-                continue
-            data = self._client.get_json(
-                f"{MUSICBRAINZ_API}artist/{artist_mbid}", params={"fmt": "json"}
-            )
-            if isinstance(data, dict):
-                items.append(build_artist(data))
+        mbids = [
+            artist_mbid
+            for track in tracks[offset : offset + limit]
+            for artist_mbid in [self._track_mbid(track)]
+            if artist_mbid
+        ]
+        items = self._fetch_artists(mbids)
         if not items and offset == 0:
             stats = self._lb.stats_artists(self._lb.username(), offset + limit)
             total = len(stats)
@@ -141,6 +139,31 @@ class MusicBrainzUser(IUser):
         return PaginatedResult(
             items=self._images.enrich(items), total=total, offset=offset, limit=limit
         )
+
+    def _fetch_artists(self, mbids: List[str]) -> List[Artist]:
+        """Resolve saved artists with one search per chunk, keeping the saved order.
+
+        The search response is not ordered like the query, so entries are matched
+        by id; ids the provider does not return are dropped, as with recordings.
+        """
+        if not mbids:
+            return []
+        by_id: Dict[str, Artist] = {}
+        for start in range(0, len(mbids), _ARTIST_LOOKUP_BATCH):
+            chunk = mbids[start : start + _ARTIST_LOOKUP_BATCH]
+            data = self._client.get_json(
+                f"{MUSICBRAINZ_API}artist/",
+                params={
+                    "query": " OR ".join(f"arid:{mbid}" for mbid in chunk),
+                    "fmt": "json",
+                    "limit": len(chunk),
+                },
+            )
+            artists = data.get("artists") if isinstance(data, dict) else None
+            for artist in artists or []:
+                if isinstance(artist, dict) and artist.get("id"):
+                    by_id[str(artist["id"])] = build_artist(artist)
+        return [by_id[mbid] for mbid in mbids if mbid in by_id]
 
     @staticmethod
     def _artist_from_stats(entry: Dict[str, Any]) -> Optional[Artist]:

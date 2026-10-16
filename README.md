@@ -92,7 +92,10 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   the album page showed the album. A release hint carried by the entry wins over the sort (a
   liked feedback's `track_metadata.mbid_mapping.caa_release_mbid`, when ListenBrainz stored
   one; the app's own feedback usually leaves `track_metadata` empty). `saved_albums` is
-  unaffected: it resolves the saved release-group id directly.
+  unaffected: it resolves the saved release-group id directly. `saved_artists` resolves the
+  page with a single batched `artist?query=arid:…` search (one request per 50 ids),
+  matching entries by id in saved order; ids the provider does not return are dropped,
+  as with recordings.
 - **Covers are taken at the release-group level** (`coverartarchive.org/release-group/<id>/front-<size>`):
   the one canonical front image per album. `build_album` uses the group cover whenever the
   release payload carries a release group and falls back to the release cover only when the
