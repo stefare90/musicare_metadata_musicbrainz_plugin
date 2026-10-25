@@ -2,7 +2,7 @@
 
 Official MusicAre **metadata** plugin, written in **100% Pure-Python**. It implements the
 `musicare_metadata_plugin_sdk` contracts and is loaded by the MusicAre metadata runtime
-(`musicare_plugin_sdk`, `pluginSdkVersion 5.0.0`). It replaces the archived Dart bytecode
+(`musicare_plugin_sdk`, `pluginSdkVersion 6.0.0`). It replaces the archived Dart bytecode
 plugin (`gyawun_metadata_plugin`), whose behaviour it preserves.
 
 Providers: **MusicBrainz** (search, releases, release groups, recordings),
@@ -25,12 +25,11 @@ build chain.
   Python, vendored into `plugin.zip`: the CPython embedded in the Android app ships no CA
   store, so without it HTTPS fails with `CERTIFICATE_VERIFY_FAILED`. It is the same reason
   the YouTube audio plugin vendors it.
-- `pluginSdkVersion: 5.0.0`. The matching host SDK is `musicare_metadata_host_sdk`.
-  **The plugin requires a host SDK `5.0.0`**: an app below that version rejects it (the
-  user sees the update page), because `IPlaylist.add_tracks` now returns an
-  `AddTracksResult` instead of `void` (a breaking contract change). Older hosts that only
-  add tracks and ignore the outcome still work at the wire level, but a host built on a
-  previous contract version would refuse to load this plugin.
+- `pluginSdkVersion: 6.0.0`. The matching host SDK is `musicare_metadata_host_sdk`.
+  **The plugin requires a host SDK `6.0.0`**: an app below that version refuses to load
+  it (the user sees the update page). `6.0.0` drops the `collaborative` flag from
+  playlist writes; the earlier `5.0.0` made `IPlaylist.add_tracks` return an
+  `AddTracksResult` instead of `void`.
 
 ## Layout
 
