@@ -14,10 +14,14 @@ import time
 from musicare_metadata_plugin_sdk import AuthRequiredError
 
 from .credentials import Credentials
-from ..net import HttpClient
+from ..net import HttpClient, HttpStatusError
 from ..shared.providers import LISTENBRAINZ_API
 
 _FEEDBACK_SCORE = {True: 1, False: 0}
+
+# A seed with no listens makes `lb-radio` answer 400: the provider has no radio to
+# build, which is a fact about the seed, not a failure of the call.
+_EMPTY_RADIO_MARKER = "Playlist does not have at least 1 recordings"
 
 # A validated username stays trusted for a day: the daemon lives longer than a
 # session, and an account deleted server-side must surface within a reasonable time.
@@ -235,9 +239,14 @@ class ListenBrainz:
         )
 
     def radio(self, prompt: str) -> Dict[str, Any]:
-        data = self._client.get_json(
-            f"{LISTENBRAINZ_API}explore/lb-radio",
-            headers=self._headers(required=True),
-            params={"prompt": prompt, "mode": "easy"},
-        )
+        try:
+            data = self._client.get_json(
+                f"{LISTENBRAINZ_API}explore/lb-radio",
+                headers=self._headers(required=True),
+                params={"prompt": prompt, "mode": "easy"},
+            )
+        except HttpStatusError as error:
+            if error.status == 400 and _EMPTY_RADIO_MARKER in error.body:
+                return {}
+            raise
         return data if isinstance(data, dict) else {}

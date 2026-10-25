@@ -2,14 +2,21 @@
 
 import pytest
 
-from musicare_metadata_plugin_sdk import AuthRequiredError
+from musicare_metadata_plugin_sdk import AuthRequiredError, TransportError
 
+from src.net import HttpStatusError
 from src.service import Credentials
 from src.service import ListenBrainz
 from src.segments.track import MusicBrainzTrack
 
 from ._fixtures import recording_payload, release_payload
 from ._stubs import StubClient, authenticated_lb
+
+# Captured from the real endpoint for a seed whose artist has no listens.
+RADIO_WITHOUT_TRACKS_BODY = (
+    '{"code":400,"error":"LB Radio generation failed: '
+    'Playlist does not have at least 1 recordings"}'
+)
 
 
 def _radio_payload(recording_ids):
@@ -70,6 +77,58 @@ def test_radio_builds_the_prompt_and_resolves_the_recordings(tmp_path):
     tracks = MusicBrainzTrack(authenticated_lb(client, tmp_path)[0], client).radio("rec-1")
 
     assert [track.id for track in tracks] == ["rec-9", "rec-10"]
+
+
+def test_radio_resolves_the_whole_lb_batch_not_the_provider_default(tmp_path):
+    recording_ids = [f"rec-{index}" for index in range(40)]
+
+    def handler(url, params):
+        if url.endswith("/recording/rec-1"):
+            return recording_payload()
+        if url.endswith("explore/lb-radio"):
+            return _radio_payload(recording_ids)
+        if url.endswith("/recording"):
+            assert params["limit"] == len(recording_ids)
+            return {
+                "recordings": [
+                    recording_payload(recording_id, releases=[])
+                    for recording_id in recording_ids
+                ]
+            }
+        raise AssertionError(f"unexpected URL: {url}")
+
+    client = StubClient(handler)
+    tracks = MusicBrainzTrack(authenticated_lb(client, tmp_path)[0], client).radio("rec-1")
+
+    assert [track.id for track in tracks] == recording_ids
+
+
+def test_radio_is_empty_when_the_seed_has_no_radio(tmp_path):
+    def handler(url, params):
+        if url.endswith("/recording/rec-1"):
+            return recording_payload()
+        if url.endswith("explore/lb-radio"):
+            raise HttpStatusError(400, url, RADIO_WITHOUT_TRACKS_BODY)
+        raise AssertionError(f"unexpected URL: {url}")
+
+    client = StubClient(handler)
+
+    assert MusicBrainzTrack(authenticated_lb(client, tmp_path)[0], client).radio("rec-1") == []
+    assert not [call for call in client.calls if call[1].endswith("/recording")]
+
+
+def test_radio_keeps_another_bad_request_as_an_error(tmp_path):
+    def handler(url, params):
+        if url.endswith("/recording/rec-1"):
+            return recording_payload()
+        if url.endswith("explore/lb-radio"):
+            raise HttpStatusError(400, url, '{"code":400,"error":"Invalid prompt"}')
+        raise AssertionError(f"unexpected URL: {url}")
+
+    client = StubClient(handler)
+
+    with pytest.raises(TransportError):
+        MusicBrainzTrack(authenticated_lb(client, tmp_path)[0], client).radio("rec-1")
 
 
 def test_radio_without_tags_only_uses_the_artist(tmp_path):

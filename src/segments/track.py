@@ -52,6 +52,9 @@ class MusicBrainzTrack(ITrack):
             params={
                 "fmt": "json",
                 "query": " OR ".join(recording_ids),
+                # The provider defaults to 25 rows: without this, a 28–50 entry
+                # `lb-radio` batch is silently truncated.
+                "limit": len(recording_ids),
                 "inc": _TRACK_INCLUDES,
             },
         )

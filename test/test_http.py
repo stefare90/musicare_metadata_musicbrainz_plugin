@@ -144,6 +144,27 @@ def test_404_maps_to_not_found(monkeypatch):
         http.HttpClient(rate_limits={}).get_json("https://example.test/x")
 
 
+def test_bad_request_keeps_status_and_body(monkeypatch):
+    body = (
+        '{"code":400,"error":"LB Radio generation failed: '
+        'Playlist does not have at least 1 recordings"}'
+    )
+
+    def handler(method, path, headers, payload):
+        return PoolResponse(400, body)
+
+    install_pool(monkeypatch, handler)
+
+    with pytest.raises(http.HttpStatusError) as caught:
+        http.HttpClient(rate_limits={}).get_json(
+            "https://api.listenbrainz.org/1/explore/lb-radio"
+        )
+
+    assert isinstance(caught.value, TransportError)
+    assert caught.value.status == 400
+    assert caught.value.body == body
+
+
 def test_network_failure_is_a_transport_error(monkeypatch):
     def handler(method, path, headers, body):
         raise OSError("dns")

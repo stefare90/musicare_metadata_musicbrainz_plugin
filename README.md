@@ -141,6 +141,12 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   the parser reads, so covers come from the Cover Art Archive (about two thirds of
   `lb-radio` releases have one). The radio playlist itself carries no artwork (`images`
   empty) — a radio has none of its own; the host may build a mosaic from the tracks.
+  The JSPF batch is resolved with an explicit `limit` equal to its size: `lb-radio`
+  returns 28–50 entries while MusicBrainz defaults to 25, so without it a radio would be
+  silently truncated. A seed with no listens makes `lb-radio` answer 400 ("Playlist does
+  not have at least 1 recordings"): that is a legitimate empty (`[]`), not an error — the
+  provider is reachable and simply has no radio for that track. Any other 400 stays an
+  error.
   JSPF entries carry the credited names packed in `creator` (`"A feat. B"`) next to
   `artist_identifiers`: entries with several identifiers resolve each name from its
   MBID with one batched MusicBrainz search per playlist page (cached for the session),

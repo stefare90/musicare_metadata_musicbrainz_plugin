@@ -137,6 +137,21 @@ def _parse_json(text: str, url: str) -> Any:
         raise TransportError(f"invalid JSON from {url}: {error}") from error
 
 
+class HttpStatusError(TransportError):
+    """A non-2xx answer whose status and body a caller may need to inspect.
+
+    It is still a ``TransportError`` (same wire code), so no handler changes; the
+    attributes let a provider-specific caller recognise an answer that is data rather
+    than a failure without parsing the message.
+    """
+
+    def __init__(self, status: int, url: str, body: str) -> None:
+        super().__init__(f"HTTP {status} for {url}: {body[:200]}")
+        self.status = status
+        self.url = url
+        self.body = body
+
+
 class HttpClient:
     """A small synchronous JSON client with retries and provider throttling."""
 
@@ -354,7 +369,7 @@ class HttpClient:
                 # A rejected credential is the host's cue to open the login flow again.
                 raise AuthRequiredError(f"{target} rejected the credentials (HTTP {status})")
             if not 200 <= status < 300:
-                raise TransportError(f"HTTP {status} for {target}: {text[:200]}")
+                raise HttpStatusError(status, target, text)
             return _parse_json(text, target)
 
     def get_json(self, url: str, **kwargs: Any) -> Any:
