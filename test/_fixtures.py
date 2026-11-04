@@ -75,14 +75,18 @@ def release_group_payload(
     primary_type: str = "Album",
     artist_mbid: str = ARTIST_MBID,
     artist_name: str = ARTIST_NAME,
+    secondary_types: Optional[List[str]] = None,
 ) -> Dict[str, Any]:
-    return {
+    payload: Dict[str, Any] = {
         "id": group_id,
         "title": title,
         "first-release-date": date,
         "primary-type": primary_type,
         "artist-credit": [credit(artist_mbid, artist_name)],
     }
+    if secondary_types is not None:
+        payload["secondary-types"] = secondary_types
+    return payload
 
 
 def artist_payload(

@@ -11,7 +11,7 @@ from typing import Any, Dict, List, Optional
 
 import time
 
-from musicare_metadata_plugin_sdk import AuthRequiredError
+from musicare_metadata_plugin_sdk import AuthRequiredError, NotFoundError
 
 from .credentials import Credentials
 from ..net import HttpClient, HttpStatusError
@@ -232,11 +232,18 @@ class ListenBrainz:
         return playlists if isinstance(playlists, list) else []
 
     def top_recordings_for_artist(self, artist_mbid: str) -> Any:
-        """Recordings of an artist ordered by real listen count (token required)."""
-        return self._client.get_json(
-            f"{LISTENBRAINZ_API}popularity/top-recordings-for-artist/{artist_mbid}",
-            headers=self._headers(required=True),
-        )
+        """Recordings of an artist ordered by real listen count (token required).
+
+        A 404 means ListenBrainz has no popularity data for the artist: an empty answer for
+        a section the artist page hides, not a failure of the page.
+        """
+        try:
+            return self._client.get_json(
+                f"{LISTENBRAINZ_API}popularity/top-recordings-for-artist/{artist_mbid}",
+                headers=self._headers(required=True),
+            )
+        except NotFoundError:
+            return []
 
     def radio(self, prompt: str) -> Dict[str, Any]:
         try:

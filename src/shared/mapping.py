@@ -20,6 +20,9 @@ from .providers import (
 _ALBUM_TYPE_BY_PRIMARY = {
     "single": AlbumType.SINGLE,
     "compilation": AlbumType.COMPILATION,
+    # TODO(contract 7.0.0): AlbumType.EP. The contract has no EP yet, and an EP is closer
+    # to an album than to a single, so it is reported as an album until the enum grows.
+    "ep": AlbumType.ALBUM,
 }
 
 

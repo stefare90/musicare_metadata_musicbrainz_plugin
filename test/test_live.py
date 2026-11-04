@@ -11,6 +11,7 @@ import time
 import pytest
 
 from musicare_metadata_plugin_sdk import (
+    AlbumType,
     Authenticated,
     AuthContext,
     AuthRequiredError,
@@ -152,6 +153,19 @@ def test_top_tracks_require_a_token():
 
     with pytest.raises(AuthRequiredError):
         plugin.artist.top_tracks(RADIOHEAD_MBID)
+
+
+def test_discography_includes_albums_eps_and_singles_without_editions():
+    plugin = get_plugin()
+
+    page = plugin.artist.albums(RADIOHEAD_MBID, limit=100)
+
+    assert page.items
+    # 91 release groups at the time of writing: 10 albums, 18 EPs, 63 singles.
+    assert page.total >= 50
+    assert any(album.album_type is AlbumType.SINGLE for album in page.items)
+    years = [int(album.release_date[:4]) for album in page.items if album.release_date]
+    assert years == sorted(years, reverse=True)
 
 
 def test_top_tracks_are_ranked_by_real_listen_count(tmp_path):

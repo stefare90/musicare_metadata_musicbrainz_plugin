@@ -62,6 +62,20 @@ def test_build_album_maps_album_types():
     assert build_album(release_payload(primary_type=None)).album_type is AlbumType.ALBUM
 
 
+def test_build_album_from_release_group_maps_an_ep_to_an_album():
+    # TODO(contract 7.0.0): the contract has no AlbumType.EP yet; the mapping must change
+    # with the contract, and this test pins the temporary shape.
+    album = build_album_from_release_group(release_group_payload(primary_type="EP"))
+
+    assert album.album_type is AlbumType.ALBUM
+
+
+def test_build_album_from_release_group_maps_a_single():
+    album = build_album_from_release_group(release_group_payload(primary_type="Single"))
+
+    assert album.album_type is AlbumType.SINGLE
+
+
 def test_build_album_from_release_group_has_three_cover_sizes():
     album = build_album_from_release_group(release_group_payload())
 

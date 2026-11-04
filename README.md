@@ -114,24 +114,40 @@ A method left unimplemented is reported as `unsupported` by the runtime, so the 
   `caa_release_mbid`/`release_mbid`, so no extra lookup is needed. The endpoint returns
   the whole list and ignores `offset`/`limit`, so the capped ranking is buffered in memory
   per artist (bounded to the last 8) and the contract's pagination is served from it.
-  Signed out it raises `auth_required` (the ranking only exists with a token); a reachable
-  service that knows no listens answers `[]`, a legitimate empty. An unreachable service
-  is a retryable error.
-- `artist.albums` ("Discography") is ordered **newest release first**. The browse endpoint
-  answers in provider order and takes no ordering parameter, so the whole discography is
-  fetched (pages of 100 up to the reported count), sorted once by `first-release-date`
-  descending and sliced per the contract's `offset`/`limit` with the full count kept as
-  `total`. A missing month or day counts as the end of its period (the same convention
-  `select_release` uses); releases with no (or unparsable) date come last, ordered by
-  title; ties break by title, then id, so the order is stable across pages. The sorted
-  discography is buffered in memory per artist (bounded to the last 8, like Popular
-  tracks) so scrolling does not refetch.
+  The section is **optional** in one direction only: signed out it raises `auth_required`
+  (the ranking cannot be read anonymously, and the host turns that error into a sign-in
+  prompt — an empty list would hide the section *and* the only invitation to log in), while
+  a 404 from the popularity endpoint — no data for that artist — is `[]`, so the host hides
+  the section instead of showing an error tile. A rejected token, an unreachable service or
+  an unexpected payload stay errors.
+- `artist.albums` ("Discography") covers **albums, EPs and singles**, ordered **newest
+  release first**. One browse call cannot express that set: `release-group?type=album`
+  silently left out every single and EP, so every release group of the artist is fetched
+  (no `type`, pages of 100 up to the reported count) and the discography is filtered here.
+  Kept: primary type `album`, `ep` or `single` with no secondary type other than
+  `soundtrack` (an original work of the artist). Left out: live, compilation, remix, dj-mix,
+  mixtape/street, demo, interview, spokenword, audiobook, audio drama, field recording and
+  broadcast — they are editions or reissues of the records above, and used to flood the
+  carousel (measured on Queen: 269 "albums" of which 130 compilations and 104 live). The
+  secondary types are an allow-list, so a type MusicBrainz adds later is left out rather
+  than silently widening the section. Cost is bounded by the artist, not by a cap: measured
+  1–6 requests and 0,3–7,6 s cold for artists with 90–587 release groups, 0 requests warm.
+  The order is computed on the filtered list: by `first-release-date` descending; a missing
+  month or day counts as the end of its period (the same convention `select_release` uses);
+  releases with no (or unparsable) date come last, ordered by title; ties break by title,
+  then id, so the order is stable across pages. `total` is the **filtered** count (the host
+  derives `hasMore` from it), and the sorted discography is buffered in memory per artist
+  (bounded to the last 8, like Popular tracks) so scrolling does not refetch. A 404 from
+  browse (an MBID MusicBrainz does not know) is an **empty discography**, not an error.
+  `AlbumType` has no EP yet: an EP is reported as `AlbumType.ALBUM`
+  (`# TODO(contract 7.0.0): AlbumType.EP`); singles are `AlbumType.SINGLE`.
 - `artist.related` ("Fans Also Like") uses the ListenBrainz Labs similarity endpoint; each
   suggestion needs a MusicBrainz lookup, so the fan-out is capped by a 15 s budget and a
   partial page is returned rather than stalling the caller. It is a **visible section**, so
   a failed Labs call is raised as a **retryable error** (the host shows the retry box); a
-  reachable service that knows no similar artist answers `[]`, which stays a legitimate
-  empty result (the section is hidden, not broken).
+  reachable service that knows no similar artist answers `[]`, and a 404 for an artist Labs
+  has never seen is an empty page too — both legitimate empties (the section is hidden, not
+  broken).
 - Radios — `track.radio` and the synthetic `radio:artist:*` / `radio:tag:*` playlist ids
   (the Home **Mood Playlists**) — are **authenticated**: ListenBrainz `lb-radio` requires
   the token. Signed out, the plugin raises `auth_required` before any request, so the host
@@ -242,6 +258,15 @@ only prompts for the token.
   a reachable provider that has no data is a legitimate empty, an unreachable or anomalous
   one is an error. This is why `related()` propagates instead of using a best-effort
   helper.
+- **"There is none" is not an error.** A section the host hides when empty must answer
+  `[]`, not raise: a 404 from the popularity endpoint, a 404 from the Labs similarity
+  endpoint and a 404 from the release-group browse of an artist MusicBrainz does not know.
+  Those are absences nobody can fix, so they must not turn into an error tile. The
+  distinction is the one that matters: **missing credentials** (`auth_required`, e.g.
+  `top_tracks` without a token) *is* fixable by the user and must surface — the host renders
+  it as a sign-in prompt; **missing data** is silent. The rest of the library keeps
+  requiring the token, and a *rejected* token (401/403) still raises `auth_required`, so the
+  plugin never swallows a credential the host can repair.
 - **Server etiquette is measured, not assumed.** One request per second per host
   (`musicbrainz.org`, `api`+`labs.api.listenbrainz.org`, `coverartarchive.org`);
   `X-RateLimit-Reset-In`/`Retry-After` drive the backoff, an exhausted budget

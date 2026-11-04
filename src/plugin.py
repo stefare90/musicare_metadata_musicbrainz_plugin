@@ -34,7 +34,7 @@ from .segments.user import MusicBrainzUser
 
 PLUGIN_ID = "org.musicare.metadata.musicbrainz"
 PLUGIN_NAME = "MusicBrainz & ListenBrainz"
-PLUGIN_VERSION = "3.0.3"
+PLUGIN_VERSION = "3.1.0"
 USER_AGENT = user_agent_for(PLUGIN_VERSION)
 
 

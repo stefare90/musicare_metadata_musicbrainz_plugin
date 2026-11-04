@@ -3,9 +3,11 @@
 import pytest
 
 from musicare_metadata_plugin_sdk import (
+    AlbumType,
     AuthContext,
     AuthRequiredError,
     Image,
+    NotFoundError,
     TransportError,
 )
 
@@ -142,6 +144,131 @@ def test_albums_paginate_from_the_sorted_discography():
     assert len(client.calls) == 1
 
 
+def test_albums_request_every_release_group_type():
+    client = StubClient(_discography_handler([release_group_payload()]))
+
+    _artist(client).albums("artist-1")
+
+    # No `type` filter: albums, EPs and singles share the discography, and the provider
+    # has no filter for that set, so it is filtered locally.
+    assert "type" not in client.calls[0][2]
+
+
+def test_albums_keep_albums_eps_and_singles_and_drop_editions():
+    groups = [
+        release_group_payload(group_id="g-album", title="Album", date="2001-01-01"),
+        release_group_payload(
+            group_id="g-ep", title="EP", date="2002-01-01", primary_type="EP"
+        ),
+        release_group_payload(
+            group_id="g-single", title="Single", date="2003-01-01", primary_type="Single"
+        ),
+        release_group_payload(
+            group_id="g-live", title="Live", date="2004-01-01", secondary_types=["Live"]
+        ),
+        release_group_payload(
+            group_id="g-compilation",
+            title="Compilation",
+            date="2005-01-01",
+            secondary_types=["Compilation"],
+        ),
+        release_group_payload(
+            group_id="g-remix",
+            title="Remix",
+            date="2006-01-01",
+            primary_type="Single",
+            secondary_types=["Remix"],
+        ),
+        release_group_payload(
+            group_id="g-broadcast",
+            title="Broadcast",
+            date="2007-01-01",
+            primary_type="Broadcast",
+        ),
+        release_group_payload(
+            group_id="g-soundtrack",
+            title="Soundtrack",
+            date="2008-01-01",
+            secondary_types=["Soundtrack"],
+        ),
+    ]
+
+    page = _artist(StubClient(_discography_handler(groups))).albums("artist-1", limit=100)
+
+    assert [album.name for album in page.items] == [
+        "Soundtrack",
+        "Single",
+        "EP",
+        "Album",
+    ]
+    assert page.total == 4
+    types = {album.name: album.album_type for album in page.items}
+    assert types["Single"] is AlbumType.SINGLE
+    # TODO(contract 7.0.0): an EP is reported as an album until the enum has an EP.
+    assert types["EP"] is AlbumType.ALBUM
+
+
+def test_albums_paginate_the_filtered_discography():
+    groups = [
+        release_group_payload(group_id=f"g-album-{n}", title=f"Album {n}", date=f"200{n}-01-01")
+        for n in range(3)
+    ] + [
+        release_group_payload(
+            group_id=f"g-single-{n}",
+            title=f"Single {n}",
+            date=f"201{n}-01-01",
+            primary_type="Single",
+        )
+        for n in range(3)
+    ] + [
+        release_group_payload(
+            group_id=f"g-live-{n}",
+            title=f"Live {n}",
+            date=f"202{n}-01-01",
+            secondary_types=["Live"],
+        )
+        for n in range(2)
+    ]
+    artist = _artist(StubClient(_discography_handler(groups)))
+
+    first = artist.albums("artist-1", offset=0, limit=4)
+    second = artist.albums("artist-1", offset=4, limit=4)
+
+    assert first.total == 6
+    assert [album.name for album in first.items] == [
+        "Single 2",
+        "Single 1",
+        "Single 0",
+        "Album 2",
+    ]
+    assert [album.name for album in second.items] == ["Album 1", "Album 0"]
+
+
+def test_albums_are_empty_when_musicbrainz_does_not_know_the_artist():
+    def handler(url, params):
+        raise NotFoundError("musicbrainz returned 404")
+
+    page = _artist(StubClient(handler)).albums("artist-1")
+
+    assert page.items == []
+    assert page.total == 0
+
+
+def test_albums_serve_the_cached_discography():
+    groups = [
+        release_group_payload(group_id="g-1", title="One", date="2001-01-01"),
+        release_group_payload(group_id="g-2", title="Two", date="2002-01-01"),
+    ]
+    client = StubClient(_discography_handler(groups))
+    artist = _artist(client)
+
+    artist.albums("artist-1", limit=1)
+    page = artist.albums("artist-1", offset=1, limit=1)
+
+    assert len(client.calls) == 1
+    assert [album.name for album in page.items] == ["One"]
+
+
 def test_albums_fetch_every_provider_page_before_sorting(monkeypatch):
     import src.segments.artist as artist_module
 
@@ -229,11 +356,13 @@ def test_top_tracks_are_empty_when_the_artist_has_no_listens(tmp_path):
     assert (page.offset, page.limit) == (5, 10)
 
 
-def test_top_tracks_require_a_token(tmp_path):
+def test_top_tracks_require_a_token():
     client = StubClient(lambda url, params: pytest.fail("no request must be made"))
 
     with pytest.raises(AuthRequiredError):
         _artist(client).top_tracks("artist-1")
+
+    assert client.calls == []
 
 
 def test_top_tracks_raise_when_listenbrainz_is_unreachable(tmp_path):
@@ -266,6 +395,30 @@ def test_top_tracks_serve_pages_from_the_buffered_ranking(tmp_path):
 
     assert len(client.calls) == 1
     assert [track.id for track in page.items] == ["rec-5", "rec-4", "rec-3", "rec-2"]
+
+
+def test_top_tracks_are_empty_when_listenbrainz_has_no_data(tmp_path):
+    def handler(url, params):
+        raise NotFoundError("listenbrainz returned 404")
+
+    client = StubClient(handler)
+    lb, _ = authenticated_lb(client, tmp_path)
+
+    page = _artist(client, lb=lb).top_tracks("artist-1")
+
+    assert page.items == []
+    assert page.total == 0
+
+
+def test_top_tracks_do_not_hide_a_rejected_token(tmp_path):
+    def handler(url, params):
+        raise AuthRequiredError("listenbrainz rejected the credentials")
+
+    client = StubClient(handler)
+    lb, _ = authenticated_lb(client, tmp_path)
+
+    with pytest.raises(AuthRequiredError):
+        _artist(client, lb=lb).top_tracks("artist-1")
 
 
 def test_top_tracks_are_not_served_from_the_buffer_after_logout(tmp_path):
@@ -340,6 +493,17 @@ def test_related_uses_the_propagating_client():
     _artist(client).related("artist-1")
 
     assert [kind for kind, _, _ in client.calls] == ["get"]
+
+
+def test_related_is_empty_when_labs_does_not_know_the_artist():
+    def handler(url, params):
+        raise NotFoundError("labs returned 404")
+
+    page = _artist(StubClient(handler)).related("artist-1", offset=3, limit=5)
+
+    assert page.items == []
+    assert page.total == 0
+    assert (page.offset, page.limit) == (3, 5)
 
 
 def test_related_resolves_the_requested_page_and_keeps_the_total():
