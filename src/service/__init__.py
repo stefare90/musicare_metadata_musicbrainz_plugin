@@ -1,4 +1,4 @@
-"""The ListenBrainz service: token, library, playlists and recommendations."""
+"""The ListenBrainz services: token, library, playlists and listening history."""
 
 from .credentials import Credentials
 from .listenbrainz import ListenBrainz, USERNAME_TTL

@@ -11,7 +11,7 @@ from musicare_metadata_plugin_sdk import (
     IArtist,
     IAuth,
     IBrowse,
-    ICore,
+    IListen,
     IPlaylist,
     ISearch,
     ITrack,
@@ -26,7 +26,7 @@ from .segments.album import MusicBrainzAlbum
 from .segments.artist import MusicBrainzArtist
 from .segments.auth import MusicBrainzAuth
 from .segments.browse import MusicBrainzBrowse
-from .segments.core import MusicBrainzCore
+from .segments.listen import MusicBrainzListen
 from .segments.playlist import MusicBrainzPlaylist
 from .segments.search import MusicBrainzSearch
 from .segments.track import MusicBrainzTrack
@@ -34,7 +34,7 @@ from .segments.user import MusicBrainzUser
 
 PLUGIN_ID = "org.musicare.metadata.musicbrainz"
 PLUGIN_NAME = "MusicBrainz & ListenBrainz"
-PLUGIN_VERSION = "3.1.0"
+PLUGIN_VERSION = "4.0.0"
 USER_AGENT = user_agent_for(PLUGIN_VERSION)
 
 
@@ -46,7 +46,7 @@ class MusicBrainzPlugin(BaseMetadataPlugin):
         listenbrainz = ListenBrainz(client, credentials)
 
         self._credentials = credentials
-        self._core = MusicBrainzCore()
+        self._listen = MusicBrainzListen(listenbrainz, PLUGIN_VERSION)
         self._user = MusicBrainzUser(listenbrainz, client, images)
         self._search = MusicBrainzSearch(client, images, self._user)
         self._auth = MusicBrainzAuth(listenbrainz, credentials)
@@ -69,8 +69,8 @@ class MusicBrainzPlugin(BaseMetadataPlugin):
         return PLUGIN_VERSION
 
     @property
-    def core(self) -> ICore:
-        return self._core
+    def listen(self) -> IListen:
+        return self._listen
 
     @property
     def search(self) -> ISearch:

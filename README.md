@@ -2,13 +2,13 @@
 
 Official MusicAre **metadata** plugin, written in **100% Pure-Python**. It implements the
 `musicare_metadata_plugin_sdk` contracts and is loaded by the MusicAre metadata runtime
-(`musicare_plugin_sdk`, `pluginSdkVersion 6.0.0`). It replaces the archived Dart bytecode
+(`musicare_plugin_sdk`, `pluginSdkVersion 7.0.0`). It replaces the archived Dart bytecode
 plugin (`gyawun_metadata_plugin`), whose behaviour it preserves.
 
 Providers: **MusicBrainz** (search, releases, release groups, recordings),
 **ListenBrainz** (token, liked tracks, user playlists, radios, algorithmic playlists,
-artist popularity), **Wikidata** (artist images, via the MediaWiki API) and
-**Wikimedia Commons** (image URLs).
+artist popularity, listening history), **Wikidata** (artist images, via the MediaWiki API)
+and **Wikimedia Commons** (image URLs).
 
 ## Why it exists
 
@@ -25,11 +25,14 @@ build chain.
   Python, vendored into `plugin.zip`: the CPython embedded in the Android app ships no CA
   store, so without it HTTPS fails with `CERTIFICATE_VERIFY_FAILED`. It is the same reason
   the YouTube audio plugin vendors it.
-- `pluginSdkVersion: 6.0.0`. The matching host SDK is `musicare_metadata_host_sdk`.
-  **The plugin requires a host SDK `6.0.0`**: an app below that version refuses to load
-  it (the user sees the update page). `6.0.0` drops the `collaborative` flag from
-  playlist writes; the earlier `5.0.0` made `IPlaylist.add_tracks` return an
-  `AddTracksResult` instead of `void`.
+- `pluginSdkVersion: 7.0.0`. The matching host SDK is `musicare_metadata_host_sdk`.
+  **The plugin requires a host SDK `7.0.0`**: an app on a different major refuses to load
+  it (the user sees the update page). `7.0.0` replaces `ICore` with the optional
+  `IListen.record(ListenEvent)` — the listening history — and has no `support()` method:
+  the support contact is the `repository` field of the manifest, which the host reads from
+  the installed file, so it is available even when the plugin cannot load. The earlier
+  breaking steps: `6.0.0` dropped the `collaborative` flag from playlist writes, and
+  `5.0.0` made `IPlaylist.add_tracks` return an `AddTracksResult` instead of `void`.
 
 ## Layout
 
@@ -40,12 +43,13 @@ src/
 ├── plugin.py        # wires the segments and exposes the interfaces
 ├── net/             # HTTP transport: stdlib client (certifi TLS, User-Agent,
                      # Retry-After, X-RateLimit-*, throttles, keep-alive)
-├── service/         # ListenBrainz service: token, library, playlists
+├── service/         # ListenBrainz service: token, library, playlists and the
+                     # authenticated transport (submit-listens included)
 ├── shared/          # helpers every segment uses: payload mapping (mapping.py),
                      # playlist documents (jspf.py), endpoints and URI/cover
                      # conventions (providers.py)
 ├── images/          # Wikidata MediaWiki API (P434/P18) and Wikimedia Commons URLs
-└── segments/        # one module per interface: core, search, album, artist,
+└── segments/        # one module per interface: listen, search, album, artist,
                      # track, playlist, user, auth, browse
 test/                # pytest suite (offline by default, live tests behind -m live)
 ```
@@ -54,8 +58,7 @@ test/                # pytest suite (offline by default, live tests behind -m li
 
 | Interface | Method | Status |
 | --- | --- | --- |
-| `ICore` | `support` | implemented (repo issues URL) |
-| `ICore` | `check_update`, `scrobble` | **unsupported** (as in the old plugin) |
+| `IListen` | `record` | implemented: ListenBrainz `submit-listens` (`playing_now` and `single`) |
 | `ISearch` | `chips`, `all`, `tracks`, `albums`, `artists` | implemented against MusicBrainz |
 | `ISearch` | `playlists` | implemented: local filter over the user's saved ListenBrainz playlists |
 | `IAlbum` | `get_album`, `tracks`, `save`, `unsave` | implemented |
@@ -66,8 +69,10 @@ test/                # pytest suite (offline by default, live tests behind -m li
 | `IAuth` | `start`, `complete`, `cancel`, `logout`, `is_authenticated` | implemented (token form) |
 | `IBrowse` | `sections`, `section_items` | implemented |
 
-A method left unimplemented is reported as `unsupported` by the runtime, so the two
-`ICore` gaps are a deliberate, working state.
+A method left unimplemented is reported as `unsupported` by the runtime. A provider
+without listening history leaves `listen` to the base class, whose method raises
+`NotImplementedError`: that is how the host **derives** the capability, with no declaration
+to keep in sync.
 
 ### Behaviour notes
 
@@ -241,6 +246,47 @@ stored by reference (the other user's id), not copied.
 OAuth2 + PKCE (loopback redirect) is planned for providers that require it; this version
 only prompts for the token.
 
+## Listening history
+
+`IListen.record(ListenEvent)` sends one listen to the account's ListenBrainz history with
+`POST /1/submit-listens`. The event arrives typed and **already validated by the runtime**
+(`kind`, a complete `Track`, `listened_at`), so the plugin maps it instead of re-validating
+it:
+
+- `playing_now` when a track starts, `single` when the play counts (the threshold is the
+  app's decision, not the plugin's);
+- `listened_at` — the **start** of the listen, in epoch seconds — only on `single`;
+  ListenBrainz rejects it on `playing_now`, so the mapper never sends it there;
+- `track_metadata.artist_name` is the credited names joined with `" & "`, `track_name` and
+  `release_name` come from the track and its album;
+- `additional_info` carries `duration_ms` when known, `recording_mbid` / `release_mbid` /
+  `release_group_mbid` **only when the id is a UUID**, and `submission_client` + the plugin
+  version.
+
+`Track.id` is the plugin's opaque key: a MusicBrainz recording is an MBID, a track that
+came from somewhere else carries the app's own id. A non-UUID id is therefore **left out**
+rather than sent as a MusicBrainz one — ListenBrainz identifies a listen by artist and
+title anyway and resolves the recording itself. The album id follows the same rule: the
+plugin's `rg:<id>` form becomes `release_group_mbid`, a bare MBID becomes `release_mbid`,
+anything else is omitted.
+
+Policy:
+
+- **No token, no request, no error.** A user who has not connected an account does not
+  share a history; `auth_required` would surface an error for a feature they never asked
+  for.
+- **`playing_now` is best effort**: any typed provider failure is swallowed, so a hint can
+  never break playback. **`single` propagates** the usual taxonomy (`rate_limited`,
+  `transport_error`, `invalid_argument`, `auth_required`): the host reports the outcome in
+  Settings, not with a snackbar.
+- **No queue/outbox here, declared.** `listen.record` receives no `AuthContext`, so on this
+  path the plugin has no data directory to persist a retry queue and a missed `single` is
+  lost. The queue arrives with the independent `scrobbler` plugin type, which owns its
+  contract and its data directory.
+
+The harness does **not** probe `listen.record`, on purpose: it runs with the real token and
+would record a real listen.
+
 ## Error policy and provider etiquette
 
 - **Mandatory calls** fail with the correct typed error: `not_found`, `rate_limited`,
@@ -308,7 +354,7 @@ python3 -m venv .venv
 # and the harness treats an empty expected method as a failure.
 ../musicare_plugin_sdk/dart/harness/test_metadata_plugin.sh linux \
   "$(realpath plugin.zip)" "weekly" \
-  "core.support,search.chips,search.tracks,search.albums,search.artists,search.playlists,album.getAlbum,artist.getArtist,track.getTrack"
+  "manifest.repository,search.chips,search.tracks,search.albums,search.artists,search.playlists,album.getAlbum,artist.getArtist,track.getTrack"
 ```
 
 `musicare-build` comes from `musicare-plugin-builder` (a dev dependency; the metadata SDK

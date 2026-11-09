@@ -40,8 +40,12 @@ class ListenBrainz:
     def token(self) -> str:
         return self._credentials.token
 
+    @property
+    def is_authenticated(self) -> bool:
+        return self._credentials.is_authenticated
+
     def require_auth(self) -> None:
-        if not self._credentials.is_authenticated:
+        if not self.is_authenticated:
             raise AuthRequiredError("ListenBrainz token required")
 
     def _headers(self, required: bool = False) -> Dict[str, str]:
@@ -211,6 +215,14 @@ class ListenBrainz:
             f"{LISTENBRAINZ_API}feedback/recording-feedback",
             headers=self._headers(required=True),
             body={"recording_mbid": recording_mbid, "score": _FEEDBACK_SCORE[liked]},
+        )
+
+    def submit_listens(self, body: Dict[str, Any]) -> None:
+        """Send a ``submit-listens`` body to the account's listening history."""
+        self._client.post_json(
+            f"{LISTENBRAINZ_API}submit-listens",
+            headers=self._headers(required=True),
+            body=body,
         )
 
     def stats_artists(self, username: str, count: int) -> List[Any]:

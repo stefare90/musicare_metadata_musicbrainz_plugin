@@ -3,7 +3,7 @@
 import json
 from pathlib import Path
 
-from musicare_metadata_plugin_sdk import BaseMetadataPlugin, SearchCategory
+from musicare_metadata_plugin_sdk import BaseMetadataPlugin, IListen, SearchCategory
 
 from src.main import get_plugin
 from src.plugin import USER_AGENT
@@ -32,10 +32,15 @@ def test_get_plugin_returns_a_metadata_plugin():
 def test_implemented_interfaces_behave_without_network():
     plugin = get_plugin()
 
-    assert plugin.core.support().startswith("https://")
+    # The capability is derived by asking the property: a provider without listening
+    # history leaves it to the base class, whose method raises ``NotImplementedError``.
+    assert isinstance(plugin.listen, IListen)
     assert plugin.search.chips() == [
         SearchCategory.TRACKS,
         SearchCategory.ALBUMS,
         SearchCategory.ARTISTS,
         SearchCategory.PLAYLISTS,
     ]
+    # ``manifest.repository`` is the support contact the host reads from the file (it
+    # works even when the plugin cannot load, unlike a method on the plugin).
+    assert _MANIFEST["repository"].startswith("https://")
