@@ -229,7 +229,12 @@ The flow is a small state machine the host drives over the `auth.*` calls:
   `Failed(code=transport_error, retryable=True)`.
 - `logout` clears the stored token; `cancel` needs no rollback.
 - `is_authenticated` reads `auth.json` and refreshes the in-memory token that `IUser`
-  uses (the runtime passes an `AuthContext` only to `IAuth`).
+  uses (the runtime passes an `AuthContext` only to `IAuth`). It answers **"a token is
+  stored"**, not "the token is still valid": validating on every call would put a
+  `validate-token` request on the host's startup path (it asks at boot and after every
+  plugin switch). A token revoked server-side therefore looks healthy until the first
+  authenticated call, which fails with `auth_required` and, for `submit-listens`, carries
+  the provider's own reason in the message (see below).
 
 The token never reaches the host: the user types it into the host's form and it stays in
 the plugin's own data directory. The account **name is cached, but the cache is keyed by
@@ -279,6 +284,13 @@ Policy:
   never break playback. **`single` propagates** the usual taxonomy (`rate_limited`,
   `transport_error`, `invalid_argument`, `auth_required`): the host reports the outcome in
   Settings, not with a snackbar.
+- **A 401 on `submit-listens` carries the provider's reason.** ListenBrainz answers
+  `{"code": 401, "error": "…"}`, and without that text a revoked token and an account the
+  provider refuses (measured: an unverified email) are indistinguishable. The reason is
+  collapsed to one line, capped at 200 characters and has the token stripped, then put in
+  the `auth_required` message. An empty body keeps the old generic message. The app at
+  `1.0.x` maps `auth_required` to a **fixed** string, so the reason reaches it but is only
+  visible in its logs; showing it in the UI is an app change, not a plugin one.
 - **No queue/outbox here, declared.** `listen.record` receives no `AuthContext`, so on this
   path the plugin has no data directory to persist a retry queue and a missed `single` is
   lost. The queue arrives with the independent `scrobbler` plugin type, which owns its
@@ -312,7 +324,9 @@ would record a real listen.
   `top_tracks` without a token) *is* fixable by the user and must surface — the host renders
   it as a sign-in prompt; **missing data** is silent. The rest of the library keeps
   requiring the token, and a *rejected* token (401/403) still raises `auth_required`, so the
-  plugin never swallows a credential the host can repair.
+  plugin never swallows a credential the host can repair. On `submit-listens` that error
+  also carries the provider's explanation, so the failure is diagnosable from the host's
+  own log instead of only from a packet capture.
 - **Server etiquette is measured, not assumed.** One request per second per host
   (`musicbrainz.org`, `api`+`labs.api.listenbrainz.org`, `coverartarchive.org`);
   `X-RateLimit-Reset-In`/`Retry-After` drive the backoff, an exhausted budget

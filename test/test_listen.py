@@ -1,5 +1,7 @@
 """``IListen``: the listening-history payload and its best-effort policy."""
 
+import json
+
 import pytest
 
 from musicare_metadata_plugin_sdk import (
@@ -16,6 +18,7 @@ from musicare_metadata_plugin_sdk import (
 )
 
 from src.service import Credentials, ListenBrainz
+from src.net import HttpAuthError
 from src.segments.listen import MusicBrainzListen
 
 from ._stubs import StubClient
@@ -216,6 +219,74 @@ def test_a_rate_limited_single_raises(tmp_path):
 
     with pytest.raises(RateLimitedError):
         listen.record(ListenEvent(kind=ListenKind.SINGLE, track=_track(), listened_at=1))
+
+
+def test_a_rejected_single_carries_the_provider_cause(tmp_path):
+    cause = "your MetaBrainz account does not have a verified email address"
+
+    def refused(url, body):
+        raise HttpAuthError(401, url, json.dumps({"code": 401, "error": cause}))
+
+    listen, _ = _listen(tmp_path, post_handler=refused)
+
+    with pytest.raises(AuthRequiredError) as caught:
+        listen.record(ListenEvent(kind=ListenKind.SINGLE, track=_track(), listened_at=1))
+
+    assert cause in caught.value.message
+    assert "HTTP 401" in caught.value.message
+
+
+def test_a_rejected_single_never_leaks_the_token(tmp_path):
+    def refused(url, body):
+        raise HttpAuthError(
+            401, url, '{"code":401,"error":"token secret-token was rejected"}'
+        )
+
+    listen, _ = _listen(tmp_path, token="secret-token", post_handler=refused)
+
+    with pytest.raises(AuthRequiredError) as caught:
+        listen.record(ListenEvent(kind=ListenKind.SINGLE, track=_track(), listened_at=1))
+
+    assert "secret-token" not in caught.value.message
+    assert "***" in caught.value.message
+
+
+def test_a_rejection_reason_is_bounded(tmp_path):
+    def refused(url, body):
+        raise HttpAuthError(401, url, json.dumps({"code": 401, "error": "x" * 500}))
+
+    listen, _ = _listen(tmp_path, post_handler=refused)
+
+    with pytest.raises(AuthRequiredError) as caught:
+        listen.record(ListenEvent(kind=ListenKind.SINGLE, track=_track(), listened_at=1))
+
+    assert caught.value.message.count("x") == 200
+
+
+def test_a_rejection_without_a_body_keeps_the_generic_message(tmp_path):
+    seen = {}
+
+    def refused(url, body):
+        seen["url"] = url
+        raise HttpAuthError(401, url, "")
+
+    listen, _ = _listen(tmp_path, post_handler=refused)
+
+    with pytest.raises(AuthRequiredError) as caught:
+        listen.record(ListenEvent(kind=ListenKind.SINGLE, track=_track(), listened_at=1))
+
+    assert caught.value.message == f"{seen['url']} rejected the credentials (HTTP 401)"
+
+
+def test_a_rejected_playing_now_never_raises(tmp_path):
+    def refused(url, body):
+        raise HttpAuthError(401, url, '{"code":401,"error":"nope"}')
+
+    listen, client = _listen(tmp_path, post_handler=refused)
+
+    listen.record(ListenEvent(kind=ListenKind.PLAYING_NOW, track=_track()))
+
+    assert len(client.calls) == 1
 
 
 def test_a_failed_playing_now_never_raises(tmp_path):

@@ -7,7 +7,12 @@ import urllib.error
 
 import pytest
 
-from musicare_metadata_plugin_sdk import NotFoundError, RateLimitedError, TransportError
+from musicare_metadata_plugin_sdk import (
+    AuthRequiredError,
+    NotFoundError,
+    RateLimitedError,
+    TransportError,
+)
 
 from src.net import http
 
@@ -163,6 +168,39 @@ def test_bad_request_keeps_status_and_body(monkeypatch):
     assert isinstance(caught.value, TransportError)
     assert caught.value.status == 400
     assert caught.value.body == body
+
+
+def test_rejected_credentials_keep_status_and_body(monkeypatch):
+    body = (
+        '{"code":401,"error":"your MetaBrainz account does not have a verified '
+        'email address"}'
+    )
+    url = "https://api.listenbrainz.org/1/submit-listens"
+
+    install_pool(monkeypatch, lambda method, path, headers, payload: PoolResponse(401, body))
+
+    with pytest.raises(http.HttpAuthError) as caught:
+        http.HttpClient(rate_limits={}).post_json(url, body={})
+
+    assert isinstance(caught.value, AuthRequiredError)
+    assert caught.value.status == 401
+    assert caught.value.url == url
+    assert caught.value.body == body
+    # The generic mapping is untouched: the cause is not in the message until a caller
+    # that owns the token decides it is safe to surface it.
+    assert caught.value.message == f"{url} rejected the credentials (HTTP 401)"
+
+
+def test_rejected_credentials_without_a_body_keep_the_same_message(monkeypatch):
+    url = "https://api.listenbrainz.org/1/submit-listens"
+
+    install_pool(monkeypatch, lambda method, path, headers, payload: PoolResponse(401, ""))
+
+    with pytest.raises(http.HttpAuthError) as caught:
+        http.HttpClient(rate_limits={}).post_json(url, body={})
+
+    assert caught.value.body == ""
+    assert caught.value.message == f"{url} rejected the credentials (HTTP 401)"
 
 
 def test_network_failure_is_a_transport_error(monkeypatch):

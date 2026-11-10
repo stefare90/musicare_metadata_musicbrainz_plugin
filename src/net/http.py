@@ -152,6 +152,23 @@ class HttpStatusError(TransportError):
         self.body = body
 
 
+class HttpAuthError(AuthRequiredError):
+    """A rejected credential whose status and body a caller may need to inspect.
+
+    It is still an ``AuthRequiredError`` and carries the same wire code, so no handler
+    changes. The attributes exist because the provider's reason (a 401 from ListenBrainz
+    puts it in the body) is often the only way to tell an expired token from an account
+    the provider refuses; only a caller that knows the token can decide whether that text
+    is safe to surface.
+    """
+
+    def __init__(self, status: int, url: str, body: str) -> None:
+        super().__init__(f"{url} rejected the credentials (HTTP {status})")
+        self.status = status
+        self.url = url
+        self.body = body
+
+
 class HttpClient:
     """A small synchronous JSON client with retries and provider throttling."""
 
@@ -367,7 +384,7 @@ class HttpClient:
                 raise NotFoundError(f"{target} returned 404")
             if status in (401, 403):
                 # A rejected credential is the host's cue to open the login flow again.
-                raise AuthRequiredError(f"{target} rejected the credentials (HTTP {status})")
+                raise HttpAuthError(status, target, text)
             if not 200 <= status < 300:
                 raise HttpStatusError(status, target, text)
             return _parse_json(text, target)

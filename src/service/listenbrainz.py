@@ -9,12 +9,13 @@ username and every call that needs the token; the ``user``, ``playlist``, ``brow
 
 from typing import Any, Dict, List, Optional
 
+import json
 import time
 
 from musicare_metadata_plugin_sdk import AuthRequiredError, NotFoundError
 
 from .credentials import Credentials
-from ..net import HttpClient, HttpStatusError
+from ..net import HttpClient, HttpAuthError, HttpStatusError
 from ..shared.providers import LISTENBRAINZ_API
 
 _FEEDBACK_SCORE = {True: 1, False: 0}
@@ -26,6 +27,35 @@ _EMPTY_RADIO_MARKER = "Playlist does not have at least 1 recordings"
 # A validated username stays trusted for a day: the daemon lives longer than a
 # session, and an account deleted server-side must surface within a reasonable time.
 USERNAME_TTL = 24 * 3600.0
+
+# A rejection reason is bounded and single-line: it travels into an error message the
+# host may show, so it must not carry a payload dump.
+_CAUSE_LIMIT = 200
+
+
+def _rejection_cause(body: str, token: str) -> str:
+    """The provider's own reason for a 401, with the token stripped and bounded.
+
+    ListenBrainz answers ``{"code": 401, "error": "…"}``; a non-JSON body is used as is.
+    The token must never surface: the body is the provider's text, not ours to trust.
+    """
+    text = ""
+    try:
+        payload = json.loads(body)
+    except (TypeError, ValueError):
+        payload = None
+    if isinstance(payload, dict):
+        for key in ("error", "message"):
+            value = payload.get(key)
+            if isinstance(value, str) and value.strip():
+                text = value
+                break
+    if not text:
+        text = body or ""
+    text = " ".join(text.split())
+    if token:
+        text = text.replace(token, "***")
+    return text[:_CAUSE_LIMIT]
 
 
 class ListenBrainz:
@@ -218,12 +248,26 @@ class ListenBrainz:
         )
 
     def submit_listens(self, body: Dict[str, Any]) -> None:
-        """Send a ``submit-listens`` body to the account's listening history."""
-        self._client.post_json(
-            f"{LISTENBRAINZ_API}submit-listens",
-            headers=self._headers(required=True),
-            body=body,
-        )
+        """Send a ``submit-listens`` body to the account's listening history.
+
+        A 401 carries the provider's reason in the body (an unverified email is the one
+        seen in the field). It travels into the error message because that is the only
+        channel the host has: without it a revoked token and a refused account look
+        identical. The token is redacted before it is exposed.
+        """
+        try:
+            self._client.post_json(
+                f"{LISTENBRAINZ_API}submit-listens",
+                headers=self._headers(required=True),
+                body=body,
+            )
+        except HttpAuthError as error:
+            cause = _rejection_cause(error.body, self._credentials.token)
+            if not cause:
+                raise
+            raise AuthRequiredError(
+                f"ListenBrainz rejected the token (HTTP {error.status}): {cause}"
+            ) from error
 
     def stats_artists(self, username: str, count: int) -> List[Any]:
         data = self._client.get_json(
