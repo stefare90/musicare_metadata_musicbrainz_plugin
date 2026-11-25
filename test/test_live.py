@@ -108,7 +108,8 @@ def test_browse_is_available_without_authentication():
     ]
     assert plugin.browse.section_items("mood_playlists").items
     context = AuthContext(data_dir="/tmp/musicare-metadata-live", plugin_id=plugin.id)
-    assert plugin.auth.is_authenticated(context) is False
+    status = plugin.auth.status(context)
+    assert status.authenticated is False
 
 
 def _authenticated_plugin(tmp_path):

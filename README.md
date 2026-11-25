@@ -2,7 +2,7 @@
 
 Official MusicAre **metadata** plugin, written in **100% Pure-Python**. It implements the
 `musicare_metadata_plugin_sdk` contracts and is loaded by the MusicAre metadata runtime
-(`musicare_plugin_sdk`, `pluginSdkVersion 7.0.0`). It replaces the archived Dart bytecode
+(`musicare_plugin_sdk`, `pluginSdkVersion 8.0.0`). It replaces the archived Dart bytecode
 plugin (`gyawun_metadata_plugin`), whose behaviour it preserves.
 
 Providers: **MusicBrainz** (search, releases, release groups, recordings),
@@ -25,14 +25,17 @@ build chain.
   Python, vendored into `plugin.zip`: the CPython embedded in the Android app ships no CA
   store, so without it HTTPS fails with `CERTIFICATE_VERIFY_FAILED`. It is the same reason
   the YouTube audio plugin vendors it.
-- `pluginSdkVersion: 7.0.0`. The matching host SDK is `musicare_metadata_host_sdk`.
-  **The plugin requires a host SDK `7.0.0`**: an app on a different major refuses to load
-  it (the user sees the update page). `7.0.0` replaces `ICore` with the optional
-  `IListen.record(ListenEvent)` — the listening history — and has no `support()` method:
-  the support contact is the `repository` field of the manifest, which the host reads from
-  the installed file, so it is available even when the plugin cannot load. The earlier
-  breaking steps: `6.0.0` dropped the `collaborative` flag from playlist writes, and
-  `5.0.0` made `IPlaylist.add_tracks` return an `AddTracksResult` instead of `void`.
+- `pluginSdkVersion: 8.0.0`. The matching host SDK is `musicare_metadata_host_sdk`.
+  **The plugin requires a host SDK `8.0.0`**: an app on a different major refuses to load
+  it (the user sees the update page). `8.0.0` moves authentication into the shared
+  `musicare_plugin_auth` contract — `IAuth.status() -> AuthStatus` replaces
+  `is_authenticated`, the actions carry an `Account`, and the credentials live in the
+  plugin's **data directory** (`AuthContext.data_dir`, passed by `/load_plugin` next to the
+  code directory). The earlier breaking steps: `7.0.0` replaced `ICore` with the optional
+  `IListen.record(ListenEvent)` (the listening history, no `support()` method — the support
+  contact is the manifest's `repository` field); `6.0.0` dropped the `collaborative` flag
+  from playlist writes; `5.0.0` made `IPlaylist.add_tracks` return an `AddTracksResult`
+  instead of `void`.
 
 ## Layout
 
@@ -66,7 +69,7 @@ test/                # pytest suite (offline by default, live tests behind -m li
 | `ITrack` | `get_track`, `radio`, `save`, `unsave` | implemented |
 | `IPlaylist` | `get_playlist`, `tracks`, `create_playlist`, `update_playlist`, `delete_playlist`, `add_tracks`, `remove_tracks`, `save`, `unsave` | implemented |
 | `IUser` | `me`, `saved_tracks`, `saved_albums`, `saved_artists`, `saved_playlists` | implemented |
-| `IAuth` | `start`, `complete`, `cancel`, `logout`, `is_authenticated` | implemented (token form) |
+| `IAuth` | `status`, `start`, `complete`, `cancel`, `logout` | implemented (token form, account from the stored credentials) |
 | `IBrowse` | `sections`, `section_items` | implemented |
 
 A method left unimplemented is reported as `unsupported` by the runtime. A provider
@@ -145,7 +148,7 @@ to keep in sync.
   (bounded to the last 8, like Popular tracks) so scrolling does not refetch. A 404 from
   browse (an MBID MusicBrainz does not know) is an **empty discography**, not an error.
   `AlbumType` has no EP yet: an EP is reported as `AlbumType.ALBUM`
-  (`# TODO(contract 7.0.0): AlbumType.EP`); singles are `AlbumType.SINGLE`.
+  (`# TODO(contract 8.0.0): AlbumType.EP`); singles are `AlbumType.SINGLE`.
 - `artist.related` ("Fans Also Like") uses the ListenBrainz Labs similarity endpoint; each
   suggestion needs a MusicBrainz lookup, so the fan-out is capped by a 15 s budget and a
   partial page is returned rather than stalling the caller. It is a **visible section**, so
@@ -216,25 +219,35 @@ to keep in sync.
 
 ## Authentication
 
-The flow is a small state machine the host drives over the `auth.*` calls:
+The flow is the state machine of the shared auth contract, driven by the host over the
+`auth.*` calls:
 
-- `start` → `NeedsForm([token])` with form copy when no token is stored, `Authenticated()`
-  when there is one. `title` is "Connect to ListenBrainz", `message` is "Paste the
-  personal token from your ListenBrainz profile." and the field's `help_url` is
-  https://listenbrainz.org/profile/. This is **provider copy shown verbatim**: the host
-  does not translate it. The call is idempotent, so it is also how `auth.status` polls.
-- `complete` validates the token against ListenBrainz `validate-token`; a valid token is
-  stored in the plugin data directory as `auth.json` and `Authenticated()` is returned.
-  A rejected token is a `Failed(code=auth_required)` outcome; a network failure is
+- `status` → `AuthStatus(authenticated, account)` read from `auth.json`. It answers **"is a
+  token stored, and whose"**, not "is the token still valid": validating on every call
+  would put a `validate-token` request on the host's startup path (it asks at boot and
+  after every plugin switch). A token revoked server-side therefore looks healthy until
+  the first authenticated call, which fails with `auth_required` and, for
+  `submit-listens`, carries the provider's own reason in the message (see below).
+- `start` → `NeedsForm([token])` with form copy when no token is stored,
+  `Authenticated(Account(id=<user>, display_name=<user>))` when there is one. `title` is
+  "Connect to ListenBrainz", `message` is "Paste the personal token from your ListenBrainz
+  profile." and the field's `help_url` is https://listenbrainz.org/profile/. This is
+  **provider copy shown verbatim**: the host does not translate it. The call is
+  idempotent — the runtime re-asks it while a step is pending, so it must not repeat side
+  effects.
+- `complete` validates the token against ListenBrainz `validate-token`; a valid one is
+  stored and `Authenticated(Account(...))` is returned. A rejected token is a
+  `Failed(code=auth_required)` outcome; a network failure is
   `Failed(code=transport_error, retryable=True)`.
-- `logout` clears the stored token; `cancel` needs no rollback.
-- `is_authenticated` reads `auth.json` and refreshes the in-memory token that `IUser`
-  uses (the runtime passes an `AuthContext` only to `IAuth`). It answers **"a token is
-  stored"**, not "the token is still valid": validating on every call would put a
-  `validate-token` request on the host's startup path (it asks at boot and after every
-  plugin switch). A token revoked server-side therefore looks healthy until the first
-  authenticated call, which fails with `auth_required` and, for `submit-listens`, carries
-  the provider's own reason in the message (see below).
+- `logout` clears the stored credentials; `cancel` needs no rollback.
+
+`auth.json` lives in the plugin's **data directory** (`AuthContext.data_dir`, a path of its
+own in `/load_plugin` — it survives code updates and is removed only on uninstall), holds
+`{"token": …, "user": …}` and is written mode `0600`. The user name is stored next to the
+token so `status` can report the account with no network call; an `auth.json` that carries
+only a token reports "authenticated" without an account rather than guessing one. The same
+file is where `IUser` gets the token from: the runtime hands an `AuthContext` only to
+`IAuth`, and this object keeps the refreshed copy in memory.
 
 The token never reaches the host: the user types it into the host's form and it stays in
 the plugin's own data directory. The account **name is cached, but the cache is keyed by
@@ -368,7 +381,7 @@ python3 -m venv .venv
 # and the harness treats an empty expected method as a failure.
 ../musicare_plugin_sdk/dart/harness/test_metadata_plugin.sh linux \
   "$(realpath plugin.zip)" "weekly" \
-  "manifest.repository,search.chips,search.tracks,search.albums,search.artists,search.playlists,album.getAlbum,artist.getArtist,track.getTrack"
+  "manifest.repository,search.chips,search.tracks,search.albums,search.artists,search.playlists,album.getAlbum,artist.getArtist,track.getTrack,auth.isAuthenticated"
 ```
 
 `musicare-build` comes from `musicare-plugin-builder` (a dev dependency; the metadata SDK

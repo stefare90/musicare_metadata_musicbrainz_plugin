@@ -27,7 +27,7 @@ def _validations(client):
 def _credentials(tmp_path, token):
     context = AuthContext(data_dir=str(tmp_path), plugin_id="test")
     credentials = Credentials()
-    credentials.store(context, token)
+    credentials.store(context, token, "tester")
     return credentials, context
 
 
@@ -51,7 +51,7 @@ def test_changing_the_token_invalidates_the_username_cache(tmp_path):
     client.handler = lambda url, params: (
         {"user_name": "bob"} if "validate-token" in url else {}
     )
-    credentials.store(context, "token-b")
+    credentials.store(context, "token-b", "bob")
 
     assert lb.username() == "bob"
     assert _validations(client) == 2

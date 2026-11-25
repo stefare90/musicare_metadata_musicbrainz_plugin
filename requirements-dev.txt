@@ -2,5 +2,9 @@
 
 # Development tooling (never vendored into plugin.zip: only requirements.txt is).
 pytest>=8.0
-git+https://github.com/stefare90/musicare_plugin_sdk.git#subdirectory=python/metadata/plugin_sdk
+# Contract 8.0.0 lives on the platform branch until both sides are merged. Order matters:
+# the metadata SDK re-exports the auth types, so the two shared packages come first.
+git+https://github.com/stefare90/musicare_plugin_sdk.git@feat/generic-auth#subdirectory=python/plugin_contract
+git+https://github.com/stefare90/musicare_plugin_sdk.git@feat/generic-auth#subdirectory=python/plugin_auth
+git+https://github.com/stefare90/musicare_plugin_sdk.git@feat/generic-auth#subdirectory=python/metadata/plugin_sdk
 git+https://github.com/stefare90/musicare_plugin_sdk.git#subdirectory=python/plugin_builder

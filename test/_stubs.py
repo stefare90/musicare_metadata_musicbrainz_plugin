@@ -72,5 +72,5 @@ def router(responses):
 def authenticated_lb(client, data_dir, token="token"):
     """Build a ``ListenBrainz`` service already holding a stored token."""
     credentials = Credentials()
-    credentials.store(AuthContext(data_dir=str(data_dir), plugin_id="test"), token)
+    credentials.store(AuthContext(data_dir=str(data_dir), plugin_id="test"), token, "tester")
     return ListenBrainz(client, credentials), credentials

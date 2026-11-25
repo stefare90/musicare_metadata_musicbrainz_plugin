@@ -92,7 +92,7 @@ def _listen(tmp_path, post_handler=None, token="token"):
     client = StubClient(post_handler=post_handler)
     credentials = Credentials()
     if token:
-        credentials.store(AuthContext(data_dir=str(tmp_path), plugin_id="test"), token)
+        credentials.store(AuthContext(data_dir=str(tmp_path), plugin_id="test"), token, "tester")
     return MusicBrainzListen(ListenBrainz(client, credentials), VERSION), client
 
 
